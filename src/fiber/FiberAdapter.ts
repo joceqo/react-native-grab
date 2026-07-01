@@ -69,7 +69,7 @@ function getSource(fiber: FiberNode): SourceLocation | null {
 }
 
 function getStyle(fiber: FiberNode): Record<string, unknown> {
-  const style = (fiber.memoizedProps as { style?: unknown }).style;
+  const style = (fiber.memoizedProps as { style?: unknown } | null)?.style;
   if (!style) return {};
   try {
     const flat = StyleSheet.flatten(style as Parameters<typeof StyleSheet.flatten>[0]);

@@ -87,7 +87,7 @@ export function serializeForLLM(element: MeasuredElement): string {
   const { fiber, x, y, width, height } = element;
   const name = element.componentName;
   const source = FiberAdapter.getSource(fiber);
-  const props = fiber.memoizedProps;
+  const props = fiber.memoizedProps ?? {};
   const stack = getComponentStack(fiber);
   const text = collectText(fiber);
   const rect = `@ (${Math.round(x)}, ${Math.round(y)}) ${Math.round(width)}×${Math.round(height)}`;

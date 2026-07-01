@@ -107,7 +107,7 @@ export function GrabPanel({ element, onClose }: GrabPanelProps) {
 }
 
 function PropsSection({ fiber }: { fiber: FiberNode }) {
-  const props = fiber.memoizedProps;
+  const props = fiber.memoizedProps ?? {};
   const entries = Object.entries(props).filter(
     ([k, v]) => k !== 'children' && v !== undefined && v !== null,
   );
