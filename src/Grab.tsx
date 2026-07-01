@@ -1,10 +1,24 @@
 import React, { type ReactNode, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { GrabHighlighter } from './GrabHighlighter';
 import { GrabPanel } from './GrabPanel';
-import { GrabTrigger } from './GrabTrigger';
+import { GrabTrigger, isPointInTrigger } from './GrabTrigger';
 import { useLayoutSnapshot } from './hooks/useLayoutSnapshot';
 import { useTapToSelect } from './hooks/useTapToSelect';
+
+// On iOS with react-native-screens native-stack (the default for Expo Router / React
+// Navigation on the New Architecture), each screen is a native container that a plain
+// sibling <View> at the JS root cannot capture touches over. `FullWindowOverlay` renders
+// into a true top-level native window that sits above every screen — the only place the
+// tap layer reliably receives touches. It's optional: if react-native-screens isn't
+// installed we fall back to a JS-root overlay (works on Android / old architecture).
+let FullWindowOverlay: React.ComponentType<{ children?: ReactNode }> | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  FullWindowOverlay = require('react-native-screens').FullWindowOverlay ?? null;
+} catch {
+  FullWindowOverlay = null;
+}
 
 export interface GrabProps {
   /** Enable the inspector. Pass `__DEV__` so it tree-shakes in production. */
@@ -14,14 +28,14 @@ export interface GrabProps {
 
 export function Grab({ enabled = false, children }: GrabProps) {
   if (!enabled) return <>{children}</>;
-
   return <GrabInner>{children}</GrabInner>;
 }
 
 function GrabInner({ children }: { children: ReactNode }) {
   const [isActive, setIsActive] = useState(false);
+  const { width, height } = useWindowDimensions();
   const { snapshot, buildSnapshot } = useLayoutSnapshot();
-  const { selected, handleTap, cycleNext, cyclePrevious, clearSelection } =
+  const { selected, hovered, handleMove, handleTap, clearSelection } =
     useTapToSelect(snapshot);
 
   const toggleActive = async () => {
@@ -34,24 +48,60 @@ function GrabInner({ children }: { children: ReactNode }) {
     }
   };
 
+  // Stacking uses zIndex (highlighter 2 < panel 10 < trigger 20) so the ring never draws
+  // over the sheet and × exit stays on top. The tap overlay only captures WHILE nothing is
+  // selected: inside FullWindowOverlay a full-screen responder wins the hit-test even over
+  // higher-zIndex siblings, so leaving it up would swallow taps meant for the panel's Copy/×
+  // buttons. Once an element is picked the panel is fully interactive; close (×) to pick again.
+  const layer = (
+    <>
+      {isActive && !selected && (
+        <View
+          style={[StyleSheet.absoluteFill, styles.tapOverlay]}
+          onStartShouldSetResponder={() => true}
+          onMoveShouldSetResponder={() => true}
+          // Live preview: as the finger moves, the ring follows the element beneath it.
+          onResponderMove={(e) => {
+            const { pageX, pageY } = e.nativeEvent;
+            if (isPointInTrigger(pageX, pageY, width, height)) return;
+            handleMove(e);
+          }}
+          onResponderRelease={(e) => {
+            const { pageX, pageY } = e.nativeEvent;
+            // The trigger can't win the hit-test under this overlay, so route taps in its
+            // corner to exit instead of selecting whatever host view sits beneath it.
+            if (isPointInTrigger(pageX, pageY, width, height)) {
+              toggleActive();
+              return;
+            }
+            handleTap(e);
+          }}
+        />
+      )}
+      <GrabHighlighter element={isActive ? selected ?? hovered : null} />
+      <GrabPanel element={selected} onClose={clearSelection} />
+      <GrabTrigger isActive={isActive} onToggle={toggleActive} />
+    </>
+  );
+
+  const useNativeOverlay = FullWindowOverlay != null && Platform.OS === 'ios';
+  const Overlay = FullWindowOverlay as React.ComponentType<{ children?: ReactNode }>;
+
   return (
     <View style={styles.root}>
       {children}
-
-      {/* Tap overlay — full screen transparent responder, below the panel */}
-      {isActive && (
-        <View
-          style={styles.tapOverlay}
-          onStartShouldSetResponder={() => true}
-          onResponderRelease={(event) => handleTap(event)}
-        />
+      {useNativeOverlay ? (
+        <Overlay>
+          {/* FullWindowOverlay has no Yoga size of its own, so absoluteFill inside it
+              collapses. Give the child explicit window dimensions so the panel's bottom
+              sheet, tap overlay and highlighter all resolve against a real frame. */}
+          <View style={{ width, height }} pointerEvents="box-none">
+            {layer}
+          </View>
+        </Overlay>
+      ) : (
+        layer
       )}
-
-      <GrabHighlighter element={isActive ? selected : null} />
-
-      <GrabPanel element={selected} onClose={clearSelection} />
-
-      <GrabTrigger isActive={isActive} onToggle={toggleActive} />
     </View>
   );
 }
@@ -61,8 +111,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   tapOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'transparent',
-    zIndex: 9000,
+    zIndex: 1,
   },
 });

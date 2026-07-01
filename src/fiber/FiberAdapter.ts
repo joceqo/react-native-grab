@@ -1,11 +1,11 @@
 import { StyleSheet } from 'react-native';
 import { HOST_COMPONENT_TAG } from './types';
-import type { FiberNode } from './types';
+import type { FiberNode, SourceLocation } from './types';
 
 const MEASURE_TIMEOUT_MS = 200;
 
 function getDevToolsHook(): Record<string, unknown> | null {
-  return (global as unknown as Record<string, unknown>)
+  return (globalThis as unknown as Record<string, unknown>)
     .__REACT_DEVTOOLS_GLOBAL_HOOK__ as Record<string, unknown> | null ?? null;
 }
 
@@ -55,8 +55,17 @@ function getComponentName(fiber: FiberNode): string {
   return fn.displayName || fn.name || 'Anonymous';
 }
 
-function getSource(fiber: FiberNode): { fileName: string; lineNumber: number } | null {
-  return fiber._debugSource ?? null;
+// file:line recovery, adaptive across React versions:
+//  - React < 19 (with @babel/plugin-transform-react-jsx-source): `fiber._debugSource`.
+//  - Classic JSX runtime setups surface it as the `__source` prop instead.
+//  - React 19 dropped `_debugSource` from the fiber entirely: neither is present, so we
+//    return null and let serialize/panel fall back to name + text + rect + stack.
+//    (Full file:line on React 19 needs a build-time Babel plugin — see README.)
+function getSource(fiber: FiberNode): SourceLocation | null {
+  if (fiber._debugSource) return fiber._debugSource;
+  const fromProps = fiber.memoizedProps?.__source;
+  if (fromProps && typeof fromProps.fileName === 'string') return fromProps;
+  return null;
 }
 
 function getStyle(fiber: FiberNode): Record<string, unknown> {
@@ -94,16 +103,18 @@ function measure(
       resolve({ x: pageX, y: pageY, width, height });
     };
 
+    type MeasureFn = (cb: typeof done) => void;
+
     // Old architecture
     if (typeof (stateNode as { measure?: unknown }).measure === 'function') {
       try {
-        (stateNode as { measure: typeof done }).measure(done);
+        (stateNode as { measure: MeasureFn }).measure(done);
         return;
       } catch {}
     }
 
     // Fabric / New Architecture
-    const canonical = (stateNode as { canonical?: { publicInstance?: { measure?: typeof done } } })
+    const canonical = (stateNode as { canonical?: { publicInstance?: { measure?: MeasureFn } } })
       .canonical;
     if (typeof canonical?.publicInstance?.measure === 'function') {
       try {

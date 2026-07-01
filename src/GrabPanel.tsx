@@ -5,6 +5,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { FiberAdapter } from './fiber/FiberAdapter';
@@ -18,18 +19,27 @@ interface GrabPanelProps {
 }
 
 export function GrabPanel({ element, onClose }: GrabPanelProps) {
-  const translateY = useRef(new Animated.Value(400)).current;
+  const { width, height } = useWindowDimensions();
+  // Hidden offset = the sheet's own measured height, so it fully clears the bottom edge
+  // regardless of content length (a fixed 400 left tall panels peeking — the sheet can be
+  // up to 65% of the screen). Start hidden with a generous fallback until onLayout runs.
+  const [sheetH, setSheetH] = useState(600);
+  const translateY = useRef(new Animated.Value(600)).current;
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     Animated.spring(translateY, {
-      toValue: element ? 0 : 400,
-      useNativeDriver: true,
+      // +80 clears the home indicator + any measurement slack so nothing peeks when hidden.
+      toValue: element ? 0 : sheetH + 80,
+      // JS-driven on purpose: inside FullWindowOverlay (a separate native window) a
+      // native-driven transform never reaches the shadow node, leaving the sheet stuck at
+      // its initial off-screen value. JS driver updates the style each frame and works.
+      useNativeDriver: false,
       tension: 65,
       friction: 11,
     }).start();
     if (!element) setCopied(false);
-  }, [element, translateY]);
+  }, [element, sheetH, translateY]);
 
   const handleCopy = useCallback(async () => {
     if (!element) return;
@@ -43,10 +53,13 @@ export function GrabPanel({ element, onClose }: GrabPanelProps) {
   return (
     // box-none lets touches in the empty area above the panel pass to the tap overlay
     <Animated.View
-      style={[styles.container, { transform: [{ translateY }] }]}
+      style={[styles.container, { width, height }, { transform: [{ translateY }] }]}
       pointerEvents="box-none"
     >
-      <View style={styles.panel}>
+      <View
+        style={styles.panel}
+        onLayout={(e) => setSheetH(e.nativeEvent.layout.height)}
+      >
         {/* Drag handle visual */}
         <View style={styles.handle} />
 
@@ -180,9 +193,14 @@ const HIT_SLOP = { top: 12, right: 12, bottom: 12, left: 12 };
 
 const styles = StyleSheet.create({
   container: {
-    ...StyleSheet.absoluteFillObject,
+    // top-anchored with an explicit width/height (set inline) + flex-end: bottom-anchoring
+    // via `bottom: 0` does not resolve inside FullWindowOverlay's native window, so we lay
+    // out a full-window box and push the sheet to its bottom edge instead.
+    position: 'absolute',
+    top: 0,
+    left: 0,
     justifyContent: 'flex-end',
-    zIndex: 9500,
+    zIndex: 10,
   },
   panel: {
     backgroundColor: '#111111',

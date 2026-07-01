@@ -3,19 +3,22 @@ type ComponentFunction = ((...args: never[]) => unknown) & {
   name?: string;
 };
 
+export interface SourceLocation {
+  fileName: string;
+  lineNumber: number;
+  columnNumber?: number;
+}
+
 export interface FiberNode {
   tag: number;
   type: string | ComponentFunction | null;
-  memoizedProps: Record<string, unknown>;
+  memoizedProps: Record<string, unknown> & { __source?: SourceLocation };
   stateNode: unknown;
   child: FiberNode | null;
   sibling: FiberNode | null;
   return: FiberNode | null;
-  _debugSource?: {
-    fileName: string;
-    lineNumber: number;
-    columnNumber?: number;
-  };
+  /** React < 19 (with @babel/plugin-transform-react-jsx-source). Removed in React 19. */
+  _debugSource?: SourceLocation;
   _debugOwner?: FiberNode;
 }
 

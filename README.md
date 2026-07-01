@@ -14,18 +14,28 @@ Inspired by [react-grab](https://github.com/aidenybai/react-grab). Built on top 
 **Copied output looks like:**
 
 ```
-// screens/HomeScreen.tsx:42
+Element selected in the app via react-native-grab (paste to your AI):
 
-<TouchableOpacity
+<View  @ (77, 342) 249×49
+  accessible
   onPress={[Function]}
-  style={"padding":16,"backgroundColor":"#fff"}
+  style={{"minWidth":200,"alignItems":"center","borderRadius":...}}
+  accessibilityState={{"disabled":true}}
 />
 
+text: "Connexion via SSO"
+
 Component stack:
-  in HomeScreen (screens/HomeScreen.tsx:42)
-  in RootStack.Navigator
-  in App (App.tsx:10)
+  in View
+  in Pressable
+  in LoginScreen
+  in Login(./(auth)/login.tsx)
+  in RootLayout(./_layout.tsx)
 ```
+
+The output carries whatever identifies the element best: its on-screen rect, props,
+**visible text**, and a component stack (with file paths for your own components). On
+React ≤ 18 a `// file:line` comment is emitted too — see the React 19 note below.
 
 ## Install
 
@@ -68,9 +78,29 @@ That's it. The **grab** button only appears when `enabled` is true, so passing `
 - Supports Old Architecture and Fabric (New Architecture)
 - Works with Expo managed and bare workflow
 
-## Cycling overlapping elements
+### New Architecture + native-stack navigation (iOS)
 
-When multiple elements overlap at your tap point, the most specific (smallest area) element is selected first. Tap the same spot again to cycle through all matches — the panel updates with each selection.
+On iOS the New Architecture renders each native-stack screen (React Navigation /
+Expo Router, via `react-native-screens`) in its own native container that a plain
+JS-root overlay can't capture touches over. When `react-native-screens` is installed,
+grab automatically hosts its tap layer, highlighter and panel inside a
+`FullWindowOverlay` so they sit above every screen. Nothing to configure — if you use
+React Navigation or Expo Router you already have `react-native-screens`. On Android and
+the Old Architecture grab falls back to a JS-root overlay.
+
+### React 19 note
+
+React 19 removed `fiber._debugSource`, so an exact `// file:line` comment can no longer
+be attached to the tapped element on React 19 (grab still reads it on React ≤ 18). This
+is why the copied output leans on the on-screen rect, visible text, props, and the
+**component stack** — which still lists your own components with their file paths
+(`in Login(./(auth)/login.tsx)`), enough for an agent to locate the code. Exact-line
+recovery on React 19 would need a build-time Babel plugin (not shipped yet).
+
+## Picking overlapping elements
+
+When several elements overlap at your tap point, the most specific (smallest area) one is
+selected. Close the panel (**×**) to tap and pick another.
 
 ## License
 

@@ -15,11 +15,23 @@ export function useTapToSelect(snapshot: MeasuredElement[]) {
     selectedIndex: 0,
     selected: null,
   });
+  // Live preview while the finger is down (there is no hover on touch): the ring follows
+  // the most-specific element under the finger. Committed to `selected` on release.
+  const [hovered, setHovered] = useState<MeasuredElement | null>(null);
+
+  const handleMove = useCallback(
+    (event: GestureResponderEvent) => {
+      const { pageX, pageY } = event.nativeEvent;
+      setHovered(hitTest(snapshot, pageX, pageY)[0] ?? null);
+    },
+    [snapshot],
+  );
 
   const handleTap = useCallback(
     (event: GestureResponderEvent) => {
       const { pageX, pageY } = event.nativeEvent;
       const matches = hitTest(snapshot, pageX, pageY);
+      setHovered(null);
       setState({ matches, selectedIndex: 0, selected: matches[0] ?? null });
     },
     [snapshot],
@@ -42,8 +54,9 @@ export function useTapToSelect(snapshot: MeasuredElement[]) {
   }, []);
 
   const clearSelection = useCallback(() => {
+    setHovered(null);
     setState({ matches: [], selectedIndex: 0, selected: null });
   }, []);
 
-  return { ...state, handleTap, cycleNext, cyclePrevious, clearSelection };
+  return { ...state, hovered, handleMove, handleTap, cycleNext, cyclePrevious, clearSelection };
 }
