@@ -36,7 +36,14 @@ function buildAncestry(
     const measured = byFiber.get(fiber);
     if (measured) rect = { x: measured.x, y: measured.y, width: measured.width, height: measured.height };
     const name = FiberAdapter.getComponentName(fiber);
-    const meaningful = fiber.tag === HOST_COMPONENT_TAG || (name !== 'Unknown' && name !== 'Anonymous');
+    // Keep a short, useful chain: real native nodes (measured hosts) + named user components
+    // (PasscodeScreen, MessageBubble…). Drop the noise — internal wrappers and flattened,
+    // unmeasurable host Views — which otherwise balloon the walk to 100+ steps.
+    const isHost = fiber.tag === HOST_COMPONENT_TAG;
+    const internal = /CssInterop|Context|Provider|ForwardRef|Memo/.test(name);
+    const meaningful = isHost
+      ? !!measured
+      : name !== 'Unknown' && name !== 'Anonymous' && !internal;
     if (meaningful) {
       chain.push({ fiber, componentName: name, depth, zIndex: measured?.zIndex ?? 0, ...rect });
       depth += 1;

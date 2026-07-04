@@ -70,7 +70,7 @@ export function GrabPanel({
       pointerEvents="box-none"
     >
       <View
-        style={styles.panel}
+        style={[styles.panel, { maxHeight: Math.round(height * 0.5) }]}
         onLayout={(e) => setSheetH(e.nativeEvent.layout.height)}
       >
         {/* Drag handle visual */}
