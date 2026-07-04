@@ -31,12 +31,30 @@ function getFiberRoot(): FiberNode | null {
   return null;
 }
 
+// A react-native-screens screen that is currently covered (e.g. the tab bar behind a
+// pushed screen) stays mounted and measurable but is NOT visible. Its `activityState` is 0
+// (2 = on top, 1 = transitioning). We skip such a screen's whole subtree so occluded
+// elements can't be selected. Only filters when the flag is explicitly 0 — unknown/undefined
+// versions fall through and stay selectable (safe default).
+function isInactiveScreen(fiber: FiberNode): boolean {
+  if (typeof fiber.type !== 'string' || fiber.type !== 'RNSScreen') return false;
+  const props = fiber.memoizedProps as { activityState?: number; active?: number } | null;
+  if (typeof props?.activityState === 'number') return props.activityState === 0;
+  if (typeof props?.active === 'number') return props.active === 0; // legacy prop
+  return false;
+}
+
 function walkHostFibers(
   fiber: FiberNode | null,
   depth = 0,
   results: Array<{ fiber: FiberNode; depth: number }> = [],
 ): Array<{ fiber: FiberNode; depth: number }> {
   if (!fiber) return results;
+  // Skip the subtree of a covered screen, but keep visiting its siblings.
+  if (isInactiveScreen(fiber)) {
+    walkHostFibers(fiber.sibling, depth, results);
+    return results;
+  }
   if (fiber.tag === HOST_COMPONENT_TAG) {
     results.push({ fiber, depth });
   }
