@@ -1,5 +1,4 @@
 import { useCallback, useState } from 'react';
-import type { GestureResponderEvent } from 'react-native';
 import type { MeasuredElement } from '../fiber/types';
 import { hitTest } from '../utils/hitTest';
 
@@ -24,18 +23,18 @@ export function useTapToSelect(snapshot: MeasuredElement[]) {
   // the most-specific element under the finger. Committed to `selected` on release.
   const [hovered, setHovered] = useState<MeasuredElement | null>(null);
 
-  const handleMove = useCallback(
-    (event: GestureResponderEvent) => {
-      const { pageX, pageY } = event.nativeEvent;
-      setHovered(hitTest(snapshot, pageX, pageY, TAP_TOLERANCE)[0] ?? null);
+  // Hit-test at explicit screen coords (the caller applies any finger→reticle offset), so
+  // tiny targets aren't obscured by the finger.
+  const handleMoveAt = useCallback(
+    (x: number, y: number) => {
+      setHovered(hitTest(snapshot, x, y, TAP_TOLERANCE)[0] ?? null);
     },
     [snapshot],
   );
 
-  const handleTap = useCallback(
-    (event: GestureResponderEvent) => {
-      const { pageX, pageY } = event.nativeEvent;
-      const matches = hitTest(snapshot, pageX, pageY, TAP_TOLERANCE);
+  const handleTapAt = useCallback(
+    (x: number, y: number) => {
+      const matches = hitTest(snapshot, x, y, TAP_TOLERANCE);
       setHovered(null);
       setState({ matches, selectedIndex: 0, selected: matches[0] ?? null });
     },
@@ -66,5 +65,5 @@ export function useTapToSelect(snapshot: MeasuredElement[]) {
     setState({ matches: [], selectedIndex: 0, selected: null });
   }, []);
 
-  return { ...state, hovered, handleMove, handleTap, selectParent, selectChild, clearSelection };
+  return { ...state, hovered, handleMoveAt, handleTapAt, selectParent, selectChild, clearSelection };
 }

@@ -35,12 +35,22 @@ function GrabInner({ children }: { children: ReactNode }) {
   const [isActive, setIsActive] = useState(false);
   const { width, height } = useWindowDimensions();
   const { snapshot, buildSnapshot } = useLayoutSnapshot();
-  const { selected, hovered, matches, selectedIndex, handleMove, handleTap, selectParent, selectChild, clearSelection } =
+  const { selected, hovered, matches, selectedIndex, handleMoveAt, handleTapAt, selectParent, selectChild, clearSelection } =
     useTapToSelect(snapshot);
+  // The finger obscures small targets, so we hit-test at a reticle placed above the touch
+  // point (like an iOS loupe). You aim the visible crosshair, not your fingertip — this is
+  // what makes tiny elements (icons, 11px dots) pointable, react-grab-style.
+  const RETICLE_OFFSET_Y = 44;
+  const [reticle, setReticle] = useState<{ x: number; y: number } | null>(null);
+  const aim = (pageX: number, pageY: number) => ({
+    x: pageX,
+    y: Math.max(6, Math.min(pageY - RETICLE_OFFSET_Y, height - 6)),
+  });
 
   const toggleActive = async () => {
     if (isActive) {
       setIsActive(false);
+      setReticle(null);
       clearSelection();
     } else {
       await buildSnapshot();
@@ -68,27 +78,42 @@ function GrabInner({ children }: { children: ReactNode }) {
             const { pageX, pageY } = e.nativeEvent;
             if (isPointInTrigger(pageX, pageY, width, height)) return;
             buildSnapshot();
-            handleMove(e);
+            const p = aim(pageX, pageY);
+            setReticle(p);
+            handleMoveAt(p.x, p.y);
           }}
-          // Live preview: as the finger moves, the ring follows the element beneath it.
+          // Live preview: the ring follows the element under the reticle (above the finger).
           onResponderMove={(e) => {
             const { pageX, pageY } = e.nativeEvent;
             if (isPointInTrigger(pageX, pageY, width, height)) return;
-            handleMove(e);
+            const p = aim(pageX, pageY);
+            setReticle(p);
+            handleMoveAt(p.x, p.y);
           }}
           onResponderRelease={(e) => {
             const { pageX, pageY } = e.nativeEvent;
+            setReticle(null);
             // The trigger can't win the hit-test under this overlay, so route taps in its
             // corner to exit instead of selecting whatever host view sits beneath it.
             if (isPointInTrigger(pageX, pageY, width, height)) {
               toggleActive();
               return;
             }
-            handleTap(e);
+            const p = aim(pageX, pageY);
+            handleTapAt(p.x, p.y);
           }}
+          onResponderTerminate={() => setReticle(null)}
         />
       )}
       <GrabHighlighter element={isActive ? selected ?? hovered : null} />
+      {isActive && !selected && reticle && (
+        <View
+          pointerEvents="none"
+          style={[styles.reticle, { left: reticle.x - 16, top: reticle.y - 16 }]}
+        >
+          <View style={styles.reticleDot} />
+        </View>
+      )}
       <GrabPanel
         element={selected}
         matchCount={matches.length}
@@ -129,5 +154,23 @@ const styles = StyleSheet.create({
   },
   tapOverlay: {
     zIndex: 1,
+  },
+  reticle: {
+    position: 'absolute',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#3B82F6',
+    backgroundColor: 'rgba(59,130,246,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 3,
+  },
+  reticleDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#3B82F6',
   },
 });

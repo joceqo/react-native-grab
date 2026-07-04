@@ -1,9 +1,8 @@
-import type { GestureResponderEvent } from 'react-native';
 import type { MeasuredElement } from '../fiber/types';
 export declare function useTapToSelect(snapshot: MeasuredElement[]): {
     hovered: MeasuredElement | null;
-    handleMove: (event: GestureResponderEvent) => void;
-    handleTap: (event: GestureResponderEvent) => void;
+    handleMoveAt: (x: number, y: number) => void;
+    handleTapAt: (x: number, y: number) => void;
     selectParent: () => void;
     selectChild: () => void;
     clearSelection: () => void;
