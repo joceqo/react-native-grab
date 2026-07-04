@@ -40,10 +40,15 @@ export function GrabPanel({
   const translateY = useRef(new Animated.Value(600)).current;
   const [copied, setCopied] = useState(false);
 
+  // Flip the sheet to the TOP when the selected element sits in the lower half, so the panel
+  // never covers what you just grabbed (e.g. the keypad / composer at the bottom).
+  const atTop = !!element && element.y + element.height / 2 > height / 2;
+  const hidden = atTop ? -(sheetH + 80) : sheetH + 80;
+
   useEffect(() => {
     Animated.spring(translateY, {
-      // +80 clears the home indicator + any measurement slack so nothing peeks when hidden.
-      toValue: element ? 0 : sheetH + 80,
+      // +80 clears the edge + any measurement slack so nothing peeks when hidden.
+      toValue: element ? 0 : hidden,
       // JS-driven on purpose: inside FullWindowOverlay (a separate native window) a
       // native-driven transform never reaches the shadow node, leaving the sheet stuck at
       // its initial off-screen value. JS driver updates the style each frame and works.
@@ -52,7 +57,7 @@ export function GrabPanel({
       friction: 11,
     }).start();
     if (!element) setCopied(false);
-  }, [element, sheetH, translateY]);
+  }, [element, sheetH, hidden, translateY]);
 
   const handleCopy = useCallback(async () => {
     if (!element) return;
@@ -66,7 +71,11 @@ export function GrabPanel({
   return (
     // box-none lets touches in the empty area above the panel pass to the tap overlay
     <Animated.View
-      style={[styles.container, { width, height }, { transform: [{ translateY }] }]}
+      style={[
+        styles.container,
+        { width, height, justifyContent: atTop ? 'flex-start' : 'flex-end' },
+        { transform: [{ translateY }] },
+      ]}
       pointerEvents="box-none"
     >
       <View

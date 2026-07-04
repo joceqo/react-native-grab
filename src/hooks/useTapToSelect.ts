@@ -15,37 +15,66 @@ interface TapState {
   selected: MeasuredElement | null;
 }
 
+type Rect = { x: number; y: number; width: number; height: number };
+
+function unionInto(map: Map<FiberNode, Rect>, fiber: FiberNode, r: MeasuredElement): void {
+  const cur = map.get(fiber);
+  if (!cur) {
+    map.set(fiber, { x: r.x, y: r.y, width: r.width, height: r.height });
+    return;
+  }
+  const x1 = Math.min(cur.x, r.x);
+  const y1 = Math.min(cur.y, r.y);
+  const x2 = Math.max(cur.x + cur.width, r.x + r.width);
+  const y2 = Math.max(cur.y + cur.height, r.y + r.height);
+  cur.x = x1;
+  cur.y = y1;
+  cur.width = x2 - x1;
+  cur.height = y2 - y1;
+}
+
 /**
- * Build the ancestor chain (deepest → root) from the tapped element by walking `fiber.return`.
- * Unlike the raw hit-stack, this includes *logical* containers — even ones the New Architecture
- * flattened away natively (a bg-less layout `<View>`, or a component like MessageBubble). Those
- * have no measured rect, so we inherit the nearest measured descendant's bounds for the highlight
- * (approximate), while name/props/stack stay exact. This is what lets Parent climb to "the group".
+ * Bounding box per fiber = union of every measured descendant's rect. This gives *containers*
+ * (even ones the New Architecture flattened away natively — a bg-less layout `<View>` like a
+ * keypad grid) a correct box around all their children, not just the one we tapped.
  */
-function buildAncestry(
-  start: MeasuredElement,
-  byFiber: Map<FiberNode, MeasuredElement>,
-): MeasuredElement[] {
+function computeBBoxes(snapshot: MeasuredElement[]): Map<FiberNode, Rect> {
+  const map = new Map<FiberNode, Rect>();
+  for (const m of snapshot) {
+    let fiber: FiberNode | null = m.fiber;
+    const seen = new Set<FiberNode>();
+    while (fiber && !seen.has(fiber)) {
+      seen.add(fiber);
+      unionInto(map, fiber, m);
+      fiber = fiber.return;
+    }
+  }
+  return map;
+}
+
+/**
+ * Ancestor chain (deepest → root) by walking `fiber.return`. Keeps the real View hierarchy
+ * (all host nodes, incl. flattened layout containers like the keypad grid) + named user
+ * components (PasscodeScreen, MessageBubble…), dropping internal wrappers (CssInterop /
+ * Context / Provider / ForwardRef / Memo). Each entry is highlighted by its descendants'
+ * bounding box, so Parent climbs to "the group around all the digits". name/props/stack exact.
+ */
+function buildAncestry(start: MeasuredElement, bboxes: Map<FiberNode, Rect>): MeasuredElement[] {
   const chain: MeasuredElement[] = [];
-  let rect = { x: start.x, y: start.y, width: start.width, height: start.height };
+  let rect: Rect = { x: start.x, y: start.y, width: start.width, height: start.height };
   let fiber: FiberNode | null = start.fiber;
   let depth = 0;
   const seen = new Set<FiberNode>();
   while (fiber && !seen.has(fiber)) {
     seen.add(fiber);
-    const measured = byFiber.get(fiber);
-    if (measured) rect = { x: measured.x, y: measured.y, width: measured.width, height: measured.height };
+    const bbox = bboxes.get(fiber);
+    if (bbox) rect = bbox;
     const name = FiberAdapter.getComponentName(fiber);
-    // Keep a short, useful chain: real native nodes (measured hosts) + named user components
-    // (PasscodeScreen, MessageBubble…). Drop the noise — internal wrappers and flattened,
-    // unmeasurable host Views — which otherwise balloon the walk to 100+ steps.
     const isHost = fiber.tag === HOST_COMPONENT_TAG;
     const internal = /CssInterop|Context|Provider|ForwardRef|Memo/.test(name);
-    const meaningful = isHost
-      ? !!measured
-      : name !== 'Unknown' && name !== 'Anonymous' && !internal;
+    const meaningful = isHost || (name !== 'Unknown' && name !== 'Anonymous' && !internal);
     if (meaningful) {
-      chain.push({ fiber, componentName: name, depth, zIndex: measured?.zIndex ?? 0, ...rect });
+      chain.push({ fiber, componentName: name, depth, zIndex: 0, ...rect });
       depth += 1;
     }
     fiber = fiber.return;
@@ -81,8 +110,8 @@ export function useTapToSelect(snapshot: MeasuredElement[]) {
         return;
       }
       // matches = the fiber ancestry (deepest → root), so Parent/Child walk the real tree.
-      const byFiber = new Map(snapshot.map((e) => [e.fiber, e]));
-      const chain = buildAncestry(start, byFiber);
+      const bboxes = computeBBoxes(snapshot);
+      const chain = buildAncestry(start, bboxes);
       setState({ matches: chain, selectedIndex: 0, selected: chain[0] ?? start });
     },
     [snapshot],
