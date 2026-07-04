@@ -15,10 +15,23 @@ import { copyToClipboard } from './utils/clipboard';
 
 interface GrabPanelProps {
   element: MeasuredElement | null;
+  /** Number of elements under the tap (the hit stack) and the currently-selected index. */
+  matchCount?: number;
+  matchIndex?: number;
+  /** Walk up (larger/ancestor) / down (smaller/descendant) the hit stack. */
+  onParent?: () => void;
+  onChild?: () => void;
   onClose: () => void;
 }
 
-export function GrabPanel({ element, onClose }: GrabPanelProps) {
+export function GrabPanel({
+  element,
+  matchCount = 0,
+  matchIndex = 0,
+  onParent,
+  onChild,
+  onClose,
+}: GrabPanelProps) {
   const { width, height } = useWindowDimensions();
   // Hidden offset = the sheet's own measured height, so it fully clears the bottom edge
   // regardless of content length (a fixed 400 left tall panels peeking — the sheet can be
@@ -88,6 +101,31 @@ export function GrabPanel({ element, onClose }: GrabPanelProps) {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Stack navigation — walk up to a container (e.g. the message group) or back down */}
+        {element && matchCount > 1 && (
+          <View style={styles.navRow}>
+            <TouchableOpacity
+              style={[styles.navBtn, matchIndex <= 0 && styles.navBtnDisabled]}
+              onPress={onChild}
+              disabled={matchIndex <= 0}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.navBtnText}>↓ Enfant</Text>
+            </TouchableOpacity>
+            <Text style={styles.navIndex}>
+              {matchIndex + 1}/{matchCount}
+            </Text>
+            <TouchableOpacity
+              style={[styles.navBtn, matchIndex >= matchCount - 1 && styles.navBtnDisabled]}
+              onPress={onParent}
+              disabled={matchIndex >= matchCount - 1}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.navBtnText}>↑ Parent</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Scrollable content */}
         {element && (
@@ -274,6 +312,35 @@ const styles = StyleSheet.create({
     fontSize: 22,
     lineHeight: 26,
     fontWeight: '300',
+  },
+  navRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1e1e1e',
+    gap: 10,
+  },
+  navBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    backgroundColor: '#1f2937',
+    borderRadius: 8,
+  },
+  navBtnDisabled: {
+    opacity: 0.35,
+  },
+  navBtnText: {
+    color: '#e5e7eb',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  navIndex: {
+    color: '#6b7280',
+    fontSize: 12,
+    fontFamily: 'monospace',
   },
   scroll: {
     flexGrow: 0,

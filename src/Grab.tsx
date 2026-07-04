@@ -35,7 +35,7 @@ function GrabInner({ children }: { children: ReactNode }) {
   const [isActive, setIsActive] = useState(false);
   const { width, height } = useWindowDimensions();
   const { snapshot, buildSnapshot } = useLayoutSnapshot();
-  const { selected, hovered, handleMove, handleTap, clearSelection } =
+  const { selected, hovered, matches, selectedIndex, handleMove, handleTap, selectParent, selectChild, clearSelection } =
     useTapToSelect(snapshot);
 
   const toggleActive = async () => {
@@ -89,7 +89,14 @@ function GrabInner({ children }: { children: ReactNode }) {
         />
       )}
       <GrabHighlighter element={isActive ? selected ?? hovered : null} />
-      <GrabPanel element={selected} onClose={clearSelection} />
+      <GrabPanel
+        element={selected}
+        matchCount={matches.length}
+        matchIndex={selectedIndex}
+        onParent={selectParent}
+        onChild={selectChild}
+        onClose={clearSelection}
+      />
       <GrabTrigger isActive={isActive} onToggle={toggleActive} />
     </>
   );

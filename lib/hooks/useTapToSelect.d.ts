@@ -4,8 +4,8 @@ export declare function useTapToSelect(snapshot: MeasuredElement[]): {
     hovered: MeasuredElement | null;
     handleMove: (event: GestureResponderEvent) => void;
     handleTap: (event: GestureResponderEvent) => void;
-    cycleNext: () => void;
-    cyclePrevious: () => void;
+    selectParent: () => void;
+    selectChild: () => void;
     clearSelection: () => void;
     matches: MeasuredElement[];
     selectedIndex: number;

@@ -41,19 +41,22 @@ export function useTapToSelect(snapshot: MeasuredElement[]) {
     [snapshot],
   );
 
-  const cycleNext = useCallback(() => {
+  // Walk UP the stack: matches are sorted smallest→largest, so the next index is a
+  // larger (ancestor) element — e.g. from a message bubble up to the message group / list.
+  // Clamped (no wrap) so Parent stops at the outermost and Child at the innermost.
+  const selectParent = useCallback(() => {
     setState((prev) => {
       if (prev.matches.length === 0) return prev;
-      const next = (prev.selectedIndex + 1) % prev.matches.length;
+      const next = Math.min(prev.selectedIndex + 1, prev.matches.length - 1);
       return { ...prev, selectedIndex: next, selected: prev.matches[next] ?? null };
     });
   }, []);
 
-  const cyclePrevious = useCallback(() => {
+  const selectChild = useCallback(() => {
     setState((prev) => {
       if (prev.matches.length === 0) return prev;
-      const prev_ = (prev.selectedIndex - 1 + prev.matches.length) % prev.matches.length;
-      return { ...prev, selectedIndex: prev_, selected: prev.matches[prev_] ?? null };
+      const next = Math.max(prev.selectedIndex - 1, 0);
+      return { ...prev, selectedIndex: next, selected: prev.matches[next] ?? null };
     });
   }, []);
 
@@ -62,5 +65,5 @@ export function useTapToSelect(snapshot: MeasuredElement[]) {
     setState({ matches: [], selectedIndex: 0, selected: null });
   }, []);
 
-  return { ...state, hovered, handleMove, handleTap, cycleNext, cyclePrevious, clearSelection };
+  return { ...state, hovered, handleMove, handleTap, selectParent, selectChild, clearSelection };
 }
