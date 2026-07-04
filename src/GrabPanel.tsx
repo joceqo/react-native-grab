@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  Platform,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -44,6 +46,9 @@ export function GrabPanel({
   // never covers what you just grabbed (e.g. the keypad / composer at the bottom).
   const atTop = !!element && element.y + element.height / 2 > height / 2;
   const hidden = atTop ? -(sheetH + 80) : sheetH + 80;
+  // When flipped to the top, clear the status bar / Dynamic Island so the header (Copy / ×)
+  // isn't tucked under it and stays tappable.
+  const topPad = atTop ? (Platform.OS === 'android' ? StatusBar.currentHeight ?? 24 : 59) : 0;
 
   useEffect(() => {
     Animated.spring(translateY, {
@@ -79,7 +84,7 @@ export function GrabPanel({
       pointerEvents="box-none"
     >
       <View
-        style={[styles.panel, { maxHeight: Math.round(height * 0.5) }]}
+        style={[styles.panel, { maxHeight: Math.round(height * 0.5) + topPad, paddingTop: topPad }]}
         onLayout={(e) => setSheetH(e.nativeEvent.layout.height)}
       >
         {/* Drag handle visual */}
