@@ -1,5 +1,7 @@
 import { useCallback, useState } from 'react';
-import type { MeasuredElement } from '../fiber/types';
+import { FiberAdapter } from '../fiber/FiberAdapter';
+import { HOST_COMPONENT_TAG } from '../fiber/types';
+import type { FiberNode, MeasuredElement } from '../fiber/types';
 import { hitTest } from '../utils/hitTest';
 
 // Grow the tap hit-rect so small targets (icons, dots, the send button) still get picked
@@ -13,6 +15,37 @@ interface TapState {
   selected: MeasuredElement | null;
 }
 
+/**
+ * Build the ancestor chain (deepest → root) from the tapped element by walking `fiber.return`.
+ * Unlike the raw hit-stack, this includes *logical* containers — even ones the New Architecture
+ * flattened away natively (a bg-less layout `<View>`, or a component like MessageBubble). Those
+ * have no measured rect, so we inherit the nearest measured descendant's bounds for the highlight
+ * (approximate), while name/props/stack stay exact. This is what lets Parent climb to "the group".
+ */
+function buildAncestry(
+  start: MeasuredElement,
+  byFiber: Map<FiberNode, MeasuredElement>,
+): MeasuredElement[] {
+  const chain: MeasuredElement[] = [];
+  let rect = { x: start.x, y: start.y, width: start.width, height: start.height };
+  let fiber: FiberNode | null = start.fiber;
+  let depth = 0;
+  const seen = new Set<FiberNode>();
+  while (fiber && !seen.has(fiber)) {
+    seen.add(fiber);
+    const measured = byFiber.get(fiber);
+    if (measured) rect = { x: measured.x, y: measured.y, width: measured.width, height: measured.height };
+    const name = FiberAdapter.getComponentName(fiber);
+    const meaningful = fiber.tag === HOST_COMPONENT_TAG || (name !== 'Unknown' && name !== 'Anonymous');
+    if (meaningful) {
+      chain.push({ fiber, componentName: name, depth, zIndex: measured?.zIndex ?? 0, ...rect });
+      depth += 1;
+    }
+    fiber = fiber.return;
+  }
+  return chain;
+}
+
 export function useTapToSelect(snapshot: MeasuredElement[]) {
   const [state, setState] = useState<TapState>({
     matches: [],
@@ -20,7 +53,7 @@ export function useTapToSelect(snapshot: MeasuredElement[]) {
     selected: null,
   });
   // Live preview while the finger is down (there is no hover on touch): the ring follows
-  // the most-specific element under the finger. Committed to `selected` on release.
+  // the most-specific element under the reticle. Committed to `selected` on release.
   const [hovered, setHovered] = useState<MeasuredElement | null>(null);
 
   // Hit-test at explicit screen coords (the caller applies any finger→reticle offset), so
@@ -34,16 +67,22 @@ export function useTapToSelect(snapshot: MeasuredElement[]) {
 
   const handleTapAt = useCallback(
     (x: number, y: number) => {
-      const matches = hitTest(snapshot, x, y, TAP_TOLERANCE);
+      const start = hitTest(snapshot, x, y, TAP_TOLERANCE)[0] ?? null;
       setHovered(null);
-      setState({ matches, selectedIndex: 0, selected: matches[0] ?? null });
+      if (!start) {
+        setState({ matches: [], selectedIndex: 0, selected: null });
+        return;
+      }
+      // matches = the fiber ancestry (deepest → root), so Parent/Child walk the real tree.
+      const byFiber = new Map(snapshot.map((e) => [e.fiber, e]));
+      const chain = buildAncestry(start, byFiber);
+      setState({ matches: chain, selectedIndex: 0, selected: chain[0] ?? start });
     },
     [snapshot],
   );
 
-  // Walk UP the stack: matches are sorted smallest→largest, so the next index is a
-  // larger (ancestor) element — e.g. from a message bubble up to the message group / list.
-  // Clamped (no wrap) so Parent stops at the outermost and Child at the innermost.
+  // Walk the ancestry: index 0 is the tapped (deepest) element; higher indices are ancestors.
+  // Clamped (no wrap) so Parent stops at the root and Child at the deepest.
   const selectParent = useCallback(() => {
     setState((prev) => {
       if (prev.matches.length === 0) return prev;
