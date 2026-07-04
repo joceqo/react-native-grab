@@ -3,9 +3,10 @@ import type { GestureResponderEvent } from 'react-native';
 import type { MeasuredElement } from '../fiber/types';
 import { hitTest } from '../utils/hitTest';
 
-// Grow the tap hit-rect by a few px so small targets (icons, the send button) still get
-// picked when the finger lands a hair off. Only ever adds nearby small elements.
-const TAP_TOLERANCE = 6;
+// Grow the tap hit-rect so small targets (icons, dots, the send button) still get picked
+// when the finger lands a hair off. Only ever adds nearby small elements — smallest-area
+// sort keeps them on top. Bumped to 10 for tiny targets like 11px passcode dots.
+const TAP_TOLERANCE = 10;
 
 interface TapState {
   matches: MeasuredElement[];
