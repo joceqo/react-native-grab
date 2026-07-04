@@ -60,6 +60,16 @@ function GrabInner({ children }: { children: ReactNode }) {
           style={[StyleSheet.absoluteFill, styles.tapOverlay]}
           onStartShouldSetResponder={() => true}
           onMoveShouldSetResponder={() => true}
+          // Rebuild the snapshot on every touch so it reflects the CURRENT screen. The
+          // snapshot is first built when grab activates; without this, navigating afterwards
+          // (e.g. opening a pushed conversation) leaves stale rects and taps land on the
+          // previous screen's elements — like grabbing the tab bar while you're in chat.
+          onResponderGrant={(e) => {
+            const { pageX, pageY } = e.nativeEvent;
+            if (isPointInTrigger(pageX, pageY, width, height)) return;
+            buildSnapshot();
+            handleMove(e);
+          }}
           // Live preview: as the finger moves, the ring follows the element beneath it.
           onResponderMove={(e) => {
             const { pageX, pageY } = e.nativeEvent;

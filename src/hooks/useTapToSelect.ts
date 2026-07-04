@@ -3,6 +3,10 @@ import type { GestureResponderEvent } from 'react-native';
 import type { MeasuredElement } from '../fiber/types';
 import { hitTest } from '../utils/hitTest';
 
+// Grow the tap hit-rect by a few px so small targets (icons, the send button) still get
+// picked when the finger lands a hair off. Only ever adds nearby small elements.
+const TAP_TOLERANCE = 6;
+
 interface TapState {
   matches: MeasuredElement[];
   selectedIndex: number;
@@ -22,7 +26,7 @@ export function useTapToSelect(snapshot: MeasuredElement[]) {
   const handleMove = useCallback(
     (event: GestureResponderEvent) => {
       const { pageX, pageY } = event.nativeEvent;
-      setHovered(hitTest(snapshot, pageX, pageY)[0] ?? null);
+      setHovered(hitTest(snapshot, pageX, pageY, TAP_TOLERANCE)[0] ?? null);
     },
     [snapshot],
   );
@@ -30,7 +34,7 @@ export function useTapToSelect(snapshot: MeasuredElement[]) {
   const handleTap = useCallback(
     (event: GestureResponderEvent) => {
       const { pageX, pageY } = event.nativeEvent;
-      const matches = hitTest(snapshot, pageX, pageY);
+      const matches = hitTest(snapshot, pageX, pageY, TAP_TOLERANCE);
       setHovered(null);
       setState({ matches, selectedIndex: 0, selected: matches[0] ?? null });
     },
