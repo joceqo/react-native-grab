@@ -1,5 +1,5 @@
 import React, { type ReactNode, useState } from 'react';
-import { Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { GrabHighlighter } from './GrabHighlighter';
 import { GrabPanel } from './GrabPanel';
 import { GrabTrigger, isPointInTrigger } from './GrabTrigger';
@@ -37,15 +37,11 @@ function GrabInner({ children }: { children: ReactNode }) {
   const { snapshot, buildSnapshot } = useLayoutSnapshot();
   const { selected, hovered, matches, selectedIndex, handleMoveAt, handleTapAt, selectParent, selectChild, clearSelection } =
     useTapToSelect(snapshot);
-  // The finger obscures small targets, so we hit-test at a reticle placed above the touch
-  // point (like an iOS loupe). You aim the visible crosshair, not your fingertip — this is
-  // what makes tiny elements (icons, 11px dots) pointable, react-grab-style.
-  const RETICLE_OFFSET_Y = 44;
+  // WYSIWYG: hit-test exactly under the finger (an above-finger offset was confusing — you
+  // tapped a target and selected whatever sat above it). A floating label above the finger
+  // shows what's under it (name + size), so you know your target even when your fingertip
+  // covers a tiny element. Tolerance in the hit-test still catches near-misses on small ones.
   const [reticle, setReticle] = useState<{ x: number; y: number } | null>(null);
-  const aim = (pageX: number, pageY: number) => ({
-    x: pageX,
-    y: Math.max(6, Math.min(pageY - RETICLE_OFFSET_Y, height - 6)),
-  });
 
   const toggleActive = async () => {
     if (isActive) {
@@ -78,17 +74,15 @@ function GrabInner({ children }: { children: ReactNode }) {
             const { pageX, pageY } = e.nativeEvent;
             if (isPointInTrigger(pageX, pageY, width, height)) return;
             buildSnapshot();
-            const p = aim(pageX, pageY);
-            setReticle(p);
-            handleMoveAt(p.x, p.y);
+            setReticle({ x: pageX, y: pageY });
+            handleMoveAt(pageX, pageY);
           }}
-          // Live preview: the ring follows the element under the reticle (above the finger).
+          // Live preview: the ring + label follow the element directly under the finger.
           onResponderMove={(e) => {
             const { pageX, pageY } = e.nativeEvent;
             if (isPointInTrigger(pageX, pageY, width, height)) return;
-            const p = aim(pageX, pageY);
-            setReticle(p);
-            handleMoveAt(p.x, p.y);
+            setReticle({ x: pageX, y: pageY });
+            handleMoveAt(pageX, pageY);
           }}
           onResponderRelease={(e) => {
             const { pageX, pageY } = e.nativeEvent;
@@ -99,19 +93,23 @@ function GrabInner({ children }: { children: ReactNode }) {
               toggleActive();
               return;
             }
-            const p = aim(pageX, pageY);
-            handleTapAt(p.x, p.y);
+            handleTapAt(pageX, pageY);
           }}
           onResponderTerminate={() => setReticle(null)}
         />
       )}
       <GrabHighlighter element={isActive ? selected ?? hovered : null} />
-      {isActive && !selected && reticle && (
+      {isActive && !selected && reticle && hovered && (
         <View
           pointerEvents="none"
-          style={[styles.reticle, { left: reticle.x - 16, top: reticle.y - 16 }]}
+          style={[
+            styles.label,
+            { left: Math.max(6, Math.min(reticle.x - 80, width - 166)), top: Math.max(6, reticle.y - 48) },
+          ]}
         >
-          <View style={styles.reticleDot} />
+          <Text numberOfLines={1} style={styles.labelText}>
+            {hovered.componentName} · {Math.round(hovered.width)}×{Math.round(hovered.height)}
+          </Text>
         </View>
       )}
       <GrabPanel
@@ -155,22 +153,20 @@ const styles = StyleSheet.create({
   tapOverlay: {
     zIndex: 1,
   },
-  reticle: {
+  label: {
     position: 'absolute',
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 2,
+    maxWidth: 160,
+    backgroundColor: '#111111',
     borderColor: '#3B82F6',
-    backgroundColor: 'rgba(59,130,246,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     zIndex: 3,
   },
-  reticleDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#3B82F6',
+  labelText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
