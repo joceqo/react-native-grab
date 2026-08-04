@@ -1,6 +1,6 @@
 {
-  "name": "react-native-grab",
-  "version": "0.1.0",
+  "name": "@jocelinqueau/react-native-grab",
+  "version": "0.2.0",
   "description": "Tap any element in your React Native app and copy it for your AI coding agent",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -8,9 +8,13 @@
     "lib",
     "src"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "npm run build && node --test tests/*.test.js"
   },
   "keywords": [
     "react-native",
@@ -35,8 +39,9 @@
     }
   },
   "devDependencies": {
-    "@types/react": "^18.0.0",
-    "@types/react-native": "^0.72.0",
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
+    "react-native": "^0.79.0",
     "typescript": "^5.0.0"
   }
 }

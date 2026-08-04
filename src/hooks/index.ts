@@ -1,3 +1,2 @@
-export { useLayoutSnapshot } from './useLayoutSnapshot';
-export { useTapToSelect } from './useTapToSelect';
-export { useDebouncedCallback } from './useDebouncedCallback';
+export { useInspector } from './useInspector';
+export type { Inspector } from './useInspector';

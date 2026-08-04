@@ -1,54 +1,66 @@
 # react-native-grab
 
-Tap any element in your React Native app and copy it for your AI coding agent.
-
-Inspired by [react-grab](https://github.com/aidenybai/react-grab). Built on top of the fiber-walking approach from [react-native-element-inspector](https://github.com/mabdinasira/react-native-element-inspector).
+React Native's element inspector, plus the one thing it cannot do: **copy the selection for your AI coding agent.**
 
 ## What it does
 
-1. Tap the **grab** button (bottom-right corner)
-2. Tap any element in your app — it highlights in blue
-3. A panel slides up showing the component name, file path, props, and component stack
-4. Press **Copy** — the full context is on your clipboard, ready to paste into Claude, Cursor, etc.
+1. Open the developer menu (⌘D on the iOS simulator, ⌘M on Android, shake on device)
+2. Tap **Inspect element (custom)**
+3. Touch anything on screen — you get React Native's own inspector: the content/padding/margin highlight, the component hierarchy, the box model, the styles
+4. Press **Copy for LLM** — a paste-ready block lands on your clipboard
 
-**Copied output looks like:**
+**Copied output:**
 
 ```
-// screens/HomeScreen.tsx:42
+// /Users/you/proj/src/components/promo/pushes/index.tsx:52
+// 370×152 at (16, 265)
 
-<TouchableOpacity
-  onPress={[Function]}
-  style={"padding":16,"backgroundColor":"#fff"}
+<View
+  style={{"backgroundColor":"#FFFFFF","borderRadius":20,"padding":20}}
 />
 
-Component stack:
-  in HomeScreen (screens/HomeScreen.tsx:42)
-  in RootStack.Navigator
-  in App (App.tsx:10)
+in Pushes (at /Users/you/proj/src/components/promo/pushes/index.tsx:52:22)
+in Workouts (at /Users/you/proj/src/screens/home/components/workouts/index.tsx:108:43)
+in HomeScreen (at /Users/you/proj/src/screens/home/index.tsx:65:23)
+in HomeRoute (at /Users/you/proj/src/routes/(tabs)/index.tsx:4:18)
+// … 189 library frames omitted
 ```
+
+Three things make that block worth pasting:
+
+- **Real file paths.** React reports component locations as offsets into the
+  Metro bundle (`…hermes-stable:11134`). Grab resolves them through Metro's
+  `/symbolicate` endpoint — the same one LogBox uses — so you get source files.
+- **Your code only.** A real component stack runs past 200 frames, nearly all of
+  them inside `node_modules`. Grab keeps your own and says how many it dropped.
+- **Full paths, not shortened ones.** An agent can open them.
 
 ## Install
 
 ```bash
-npm install react-native-grab
+npm install @jocelinqueau/react-native-grab
 ```
 
-You also need a clipboard package (pick one):
+Copying needs a clipboard module — pick the one that matches your setup:
 
 ```bash
-# Expo managed
-npx expo install expo-clipboard
-
-# Bare React Native
-npm install @react-native-clipboard/clipboard
+npx expo install expo-clipboard                # Expo
+npm install @react-native-clipboard/clipboard  # bare React Native
 ```
+
+Both are optional peer dependencies, loaded through a guarded `require`. Without
+one, everything still works except the copy, which warns instead.
+
+> On Expo, adding `expo-clipboard` means a native rebuild (`npx expo run:ios`).
+> React Native's core `Clipboard` export is not a substitute: its native module
+> is no longer bundled, so it calls into nothing.
 
 ## Usage
 
 Wrap your root component:
 
 ```tsx
-import { Grab } from 'react-native-grab';
+import { Grab } from '@jocelinqueau/react-native-grab';
 
 export default function App() {
   return (
@@ -59,18 +71,57 @@ export default function App() {
 }
 ```
 
-That's it. The **grab** button only appears when `enabled` is true, so passing `__DEV__` means zero overhead in production.
+Pass `__DEV__` so the whole thing disappears in production — `Grab` then renders
+its children and nothing else.
+
+### Props
+
+| Prop | Default | Description |
+| --- | --- | --- |
+| `enabled` | `false` | Turn the inspector on. Pass `__DEV__`. |
+| `trigger` | `'devMenu'` | `'devMenu'`, `'button'` (a floating button), or `'both'`. |
+| `devMenuLabel` | `'Inspect element (custom)'` | Label of the developer-menu entry. |
+
+The default costs nothing when unused: no floating button over your UI, and
+nothing mounted in your layout until you open the inspector.
+
+### API
+
+For building your own UI on top:
+
+```ts
+import {
+  inspectAtPoint,       // (x, y, hostView) => Promise<GrabSelection | null>
+  selectHierarchyIndex, // walk up and down the hierarchy
+  isInspectorAvailable, // false outside a dev build
+  serializeForLLM,      // GrabSelection => the block above
+  copyToClipboard,
+  useInspector,         // the hook Grab itself uses
+} from '@jocelinqueau/react-native-grab';
+```
+
+`inspectAtPoint` needs the host instance wrapping your app — it scopes the hit
+test, and Fabric dereferences it without a null check.
 
 ## Requirements
 
-- React ≥ 18.0.0
-- React Native ≥ 0.72.0
-- Supports Old Architecture and Fabric (New Architecture)
-- Works with Expo managed and bare workflow
+- React ≥ 18 (including 19)
+- React Native ≥ 0.72
+- Old Architecture and Fabric, Expo managed and bare
 
-## Cycling overlapping elements
+Inspection relies on React exposing `getInspectorDataForViewAtPoint` on its
+renderer, which it does in every development build. It does **not** require the
+React DevTools backend to be connected.
 
-When multiple elements overlap at your tap point, the most specific (smallest area) element is selected first. Tap the same spot again to cycle through all matches — the panel updates with each selection.
+## Credits
+
+The inspector UI and engine are ported from React Native itself
+(`react-native/src/private/devsupport/devmenu/elementinspector`), MIT-licensed,
+copyright Meta Platforms, Inc. Each ported file carries its attribution header.
+They are copied rather than imported because that path is private and has moved
+before.
+
+Inspired by [react-grab](https://github.com/aidenybai/react-grab).
 
 ## License
 
