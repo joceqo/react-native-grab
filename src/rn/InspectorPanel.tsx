@@ -30,17 +30,49 @@ interface InspectorPanelProps {
   selection: GrabSelection | null;
   onSelectIndex: (index: number) => void;
   onClose: () => void;
+  /** Where the selection goes. Absent: the clipboard, exactly as before. */
+  onGrab?: (text: string, selection: GrabSelection) => void | Promise<void>;
+  grabLabel?: string;
+  grabDoneLabel?: string;
 }
 
-export function InspectorPanel({ selection, onSelectIndex, onClose }: InspectorPanelProps) {
+export function InspectorPanel({
+  selection,
+  onSelectIndex,
+  onClose,
+  onGrab,
+  grabLabel,
+  grabDoneLabel,
+}: InspectorPanelProps) {
   const [copied, setCopied] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   const handleCopy = useCallback(async () => {
     if (!selection) return;
-    await copyToClipboard(serializeForLLM(selection));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [selection]);
+    const text = serializeForLLM(selection);
+    try {
+      // The clipboard stays the default: an app that passes no `onGrab` behaves
+      // exactly as it did, and nobody has to learn a prop to keep working.
+      await (onGrab ? onGrab(text, selection) : copyToClipboard(text));
+      setFailed(false);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      // A custom destination fails in ways the clipboard never could: no network,
+      // a server that refuses, a session that expired. Flashing "Copied!" over a
+      // selection that went nowhere would be worse than the failure itself.
+      console.warn('[react-native-grab] onGrab failed', error);
+      setCopied(false);
+      setFailed(true);
+      setTimeout(() => setFailed(false), 2000);
+    }
+  }, [selection, onGrab]);
+
+  const actionTitle = failed
+    ? 'Failed'
+    : copied
+      ? (grabDoneLabel ?? (onGrab ? 'Sent!' : 'Copied!'))
+      : (grabLabel ?? 'Copy for LLM');
 
   return (
     <SafeAreaView style={styles.container}>
@@ -56,7 +88,7 @@ export function InspectorPanel({ selection, onSelectIndex, onClose }: InspectorP
 
       <View style={styles.buttonRow}>
         <PanelButton
-          title={copied ? 'Copied!' : 'Copy for LLM'}
+          title={actionTitle}
           highlighted={copied}
           disabled={!selection}
           onPress={handleCopy}
