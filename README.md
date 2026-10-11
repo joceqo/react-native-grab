@@ -74,6 +74,41 @@ export default function App() {
 Pass `__DEV__` so the whole thing disappears in production — `Grab` then renders
 its children and nothing else.
 
+### React Navigation / Expo Router: retained screens
+
+Fabric's inspector hit test uses the layout tree. Native navigation can detach or
+cover a screen while its layout nodes remain mounted, so querying the application
+root can select a card from an inactive tab. Add a focused `GrabScope` through
+**each** tab/stack navigator's `screenLayout`, including nested navigators:
+
+```tsx
+import { GrabScope } from '@jocelinqueau/react-native-grab';
+import { Tabs, useIsFocused } from 'expo-router';
+// With React Navigation, import useIsFocused from '@react-navigation/native'.
+
+function FocusedScreen({ children }) {
+  const focused = useIsFocused();
+  return <GrabScope active={focused}>{children}</GrabScope>;
+}
+
+const screenLayout = ({ children }) => <FocusedScreen>{children}</FocusedScreen>;
+
+export default function TabsLayout() {
+  return <Tabs screenLayout={screenLayout} />;
+}
+// Apply the same screenLayout to <Stack> / <Stack.Navigator> as well.
+```
+
+Grab queries the deepest focused scope containing the touch, translating its
+coordinates for Fabric. Inactive parent scopes also exclude frozen descendants.
+Navigation invalidates pending selections. Outside screen bounds (for example
+the tab bar), inspection falls back to the app wrapper. No navigation dependency
+is added to Grab, and disabled Grab renders scopes without native wrappers.
+
+Scopes describe navigation focus, not arbitrary visual occlusion. Register custom
+retained views with the appropriate `active` value too. Native modals on separate
+surfaces still need an inspector hosted inside their own surface.
+
 ### Props
 
 | Prop | Default | Description |

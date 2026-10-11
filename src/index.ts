@@ -1,5 +1,7 @@
 export { Grab } from './Grab';
 export type { GrabProps } from './Grab';
+export { GrabScope } from './GrabScope';
+export type { GrabScopeProps } from './GrabScope';
 
 export { addDevMenuItem } from './devMenu';
 export { useInspector } from './hooks/useInspector';

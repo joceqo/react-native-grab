@@ -3,6 +3,8 @@ import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import { addDevMenuItem } from './devMenu';
 import { GrabErrorBoundary } from './GrabErrorBoundary';
 import { GrabTrigger } from './GrabTrigger';
+import { GrabScopeRegistryContext } from './GrabScope';
+import { createScopeRegistry } from './inspector/scopes';
 import { useInspector, type Inspector } from './hooks/useInspector';
 import type { GrabSelection } from './inspector/types';
 import { InspectorOverlay } from './rn/InspectorOverlay';
@@ -75,7 +77,8 @@ type GrabRootProps = Omit<GrabProps, 'enabled'> & Required<Pick<GrabProps, 'trig
 
 function GrabRoot({ trigger, devMenuLabel, onGrab, grabLabel, grabDoneLabel, children }: GrabRootProps) {
   const appRef = useRef<View | null>(null);
-  const inspector = useInspector(appRef);
+  const [scopes] = useState(createScopeRegistry);
+  const inspector = useInspector(appRef, scopes);
   const { toggle } = inspector;
 
   useEffect(() => {
@@ -86,7 +89,9 @@ function GrabRoot({ trigger, devMenuLabel, onGrab, grabLabel, grabDoneLabel, chi
   return (
     <View style={styles.root}>
       <View ref={appRef} style={styles.root} collapsable={false}>
-        {children}
+        <GrabScopeRegistryContext.Provider value={scopes}>
+          {children}
+        </GrabScopeRegistryContext.Provider>
       </View>
 
       <GrabErrorBoundary fallback={null}>

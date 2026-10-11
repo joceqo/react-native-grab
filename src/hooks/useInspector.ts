@@ -1,6 +1,7 @@
-import { useCallback, useRef, useState, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { inspectAtPoint, isInspectorAvailable, selectHierarchyIndex } from '../inspector/inspect';
 import type { GrabSelection, InspectorFrame } from '../inspector/types';
+import type { ScopeRegistry } from '../inspector/scopes';
 
 let warned = false;
 
@@ -30,34 +31,47 @@ export interface Inspector {
   clearSelection: () => void;
 }
 
-export function useInspector(inspectedViewRef: MutableRefObject<unknown>): Inspector {
+export function useInspector(inspectedViewRef: MutableRefObject<unknown>, scopes?: ScopeRegistry): Inspector {
   const [active, setActive] = useState(false);
   const [selection, setSelection] = useState<GrabSelection | null>(null);
   const [hoveredFrame, setHoveredFrame] = useState<InspectorFrame | null>(null);
 
   // One query in flight at a time: a drag would otherwise queue dozens.
   const hoverBusy = useRef(false);
+  const generation = useRef(0);
   const selectionRef = useRef<GrabSelection | null>(null);
   selectionRef.current = selection;
 
   const clearSelection = useCallback(() => {
+    generation.current += 1;
+    selectionRef.current = null;
     setSelection(null);
     setHoveredFrame(null);
   }, []);
+
+  useEffect(() => scopes?.subscribe(clearSelection), [scopes, clearSelection]);
+  useEffect(() => () => { generation.current += 1; }, []);
+
+  const inspect = useCallback(async (x: number, y: number) => {
+    const scope = await scopes?.resolve(x, y);
+    return scope
+      ? inspectAtPoint(scope.x, scope.y, scope.view)
+      : inspectAtPoint(x, y, inspectedViewRef.current);
+  }, [scopes, inspectedViewRef]);
 
   const activate = useCallback(() => {
     if (!isInspectorAvailable()) {
       warnOnce();
       return;
     }
+    clearSelection();
     setActive(true);
-  }, []);
+  }, [clearSelection]);
 
   const deactivate = useCallback(() => {
     setActive(false);
-    setSelection(null);
-    setHoveredFrame(null);
-  }, []);
+    clearSelection();
+  }, [clearSelection]);
 
   const toggle = useCallback(() => {
     if (active) deactivate();
@@ -66,6 +80,8 @@ export function useInspector(inspectedViewRef: MutableRefObject<unknown>): Inspe
 
   const select = useCallback(
     (x: number, y: number) => {
+      clearSelection();
+      const request = generation.current;
       const view = inspectedViewRef.current;
       if (view == null) {
         console.warn(
@@ -74,9 +90,11 @@ export function useInspector(inspectedViewRef: MutableRefObject<unknown>): Inspe
         return;
       }
 
-      inspectAtPoint(x, y, view).then(
+      inspect(x, y).then(
         (next) => {
+          if (request !== generation.current) return;
           if (next) {
+            selectionRef.current = next;
             setSelection(next);
             setHoveredFrame(null);
           } else {
@@ -86,28 +104,34 @@ export function useInspector(inspectedViewRef: MutableRefObject<unknown>): Inspe
         (error) => console.warn('[react-native-grab] inspection failed:', error),
       );
     },
-    [inspectedViewRef],
+    [inspectedViewRef, inspect, clearSelection],
   );
 
   const hover = useCallback(
     (x: number, y: number) => {
       if (hoverBusy.current) return;
       hoverBusy.current = true;
-      void inspectAtPoint(x, y, inspectedViewRef.current).then((next) => {
-        hoverBusy.current = false;
-        setHoveredFrame(next ? next.frame : null);
-      });
+      const request = generation.current;
+      void inspect(x, y).then((next) => {
+        if (request === generation.current) setHoveredFrame(next ? next.frame : null);
+      }, () => {
+        if (request === generation.current) setHoveredFrame(null);
+      }).finally(() => { hoverBusy.current = false; });
     },
-    [inspectedViewRef],
+    [inspect],
   );
 
   const selectIndex = useCallback((index: number) => {
     const current = selectionRef.current;
     if (!current) return;
     if (index < 0 || index >= current.hierarchy.length) return;
-
+    const request = ++generation.current;
     void selectHierarchyIndex(current, index).then((next) => {
-      if (next) setSelection(next);
+      if (request !== generation.current) return;
+      if (next) {
+        selectionRef.current = next;
+        setSelection(next);
+      }
     });
   }, []);
 
