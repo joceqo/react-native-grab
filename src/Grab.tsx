@@ -113,7 +113,8 @@ function GrabInspector({
   grabLabel,
   grabDoneLabel,
 }: { inspector: Inspector } & Pick<GrabProps, 'onGrab' | 'grabLabel' | 'grabDoneLabel'>) {
-  const { active, selection, hoveredFrame, select, hover, deactivate, selectIndex } = inspector;
+  const { active, selection, hoveredFrame, select, hover, deactivate, selectIndex, ensureSources } =
+    inspector;
   // Keep the panel away from the finger, as React Native's inspector does.
   const [panelAtTop, setPanelAtTop] = useState(false);
   const { height } = useWindowDimensions();
@@ -139,6 +140,7 @@ function GrabInspector({
           onSelectIndex={selectIndex}
           onClose={deactivate}
           onGrab={onGrab}
+          ensureSources={ensureSources}
           grabLabel={grabLabel}
           grabDoneLabel={grabDoneLabel}
         />

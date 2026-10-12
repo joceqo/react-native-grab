@@ -100,3 +100,79 @@ test('survives values that cannot be stringified', () => {
   const out = serializeForLLMCore(selection({ props: { data: cyclic } }));
   assert.match(out, /data=\{/);
 });
+
+const BUNDLE = 'http://127.0.0.1:8082/index.ts.bundle//&platform=ios&dev=true';
+
+const unresolved = (overrides = {}) =>
+  selection({
+    stack: [
+      { name: 'RCTView', fileName: null, lineNumber: null, columnNumber: null },
+      { name: 'View', fileName: BUNDLE, lineNumber: 15392, columnNumber: 3 },
+      { name: 'Card', fileName: BUNDLE, lineNumber: 549003, columnNumber: 37 },
+    ],
+    source: { name: 'Card', fileName: BUNDLE, lineNumber: 549003, columnNumber: 37 },
+    ...overrides,
+  });
+
+test('never passes a Metro bundle offset off as a source location', () => {
+  const out = serializeForLLMCore(unresolved());
+
+  assert.doesNotMatch(out, /index\.ts\.bundle/);
+  assert.strictEqual(out.split('\n')[0], '// 343×48 at (16, 320)');
+  assert.match(out, /^in Card$/m);
+  assert.match(out, /^in View$/m);
+});
+
+test('says why the frames have no files, in Metro\'s own words', () => {
+  const out = serializeForLLMCore(
+    unresolved({
+      symbolication: {
+        server: 'http://127.0.0.1:8082/',
+        requested: 2,
+        mapped: 0,
+        error: 'no answer from Metro at http://127.0.0.1:8082/ after 15s',
+      },
+    }),
+  );
+
+  assert.match(out, /\/\/ no file:line for 2 frames: no answer from Metro/);
+});
+
+test('admits when the round-trip never happened', () => {
+  const out = serializeForLLMCore(unresolved({ symbolication: null }));
+  assert.match(out, /\/\/ no file:line for 2 frames: symbolication did not run/);
+});
+
+test('stays quiet once every frame has a real file', () => {
+  const out = serializeForLLMCore(
+    selection({ symbolication: { server: 'http://localhost:8081/', requested: 2, mapped: 2, error: null } }),
+  );
+  assert.doesNotMatch(out, /no file:line/);
+});
+
+test('does not complain about offsets it never printed', () => {
+  // Metro placed the app frame; the two it could not place are library
+  // internals that the block drops anyway. Nothing to warn about.
+  const out = serializeForLLMCore(
+    unresolved({
+      stack: [
+        { name: 'View', fileName: BUNDLE, lineNumber: 15392, columnNumber: 3 },
+        { name: 'Card', fileName: 'src/Card.tsx', lineNumber: 42, columnNumber: 7 },
+      ],
+      source: { name: 'Card', fileName: 'src/Card.tsx', lineNumber: 42, columnNumber: 7 },
+      symbolication: { server: 'http://127.0.0.1:8082/', requested: 2, mapped: 1, error: null },
+    }),
+  );
+
+  assert.strictEqual(out.split('\n')[0], '// src/Card.tsx:42');
+  assert.doesNotMatch(out, /no file:line/);
+});
+
+test('counts what Metro managed when the printed frames are still offsets', () => {
+  const out = serializeForLLMCore(
+    unresolved({
+      symbolication: { server: 'http://127.0.0.1:8082/', requested: 2, mapped: 0, error: null },
+    }),
+  );
+  assert.match(out, /\/\/ no file:line for 2 frames: Metro placed 0 of 2 bundle offsets/);
+});

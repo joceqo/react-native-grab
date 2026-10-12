@@ -6,7 +6,7 @@ import {
   type RawInspectorData,
 } from './getInspectorDataForViewAtPoint';
 import { symbolicateStack } from './symbolicate';
-import type { GrabSelection, StackFrame } from './types';
+import type { GrabSelection, StackFrame, Symbolication } from './types';
 
 /** Fabric answers through a callback; give up rather than hang if it never fires. */
 const INSPECT_TIMEOUT_MS = 600;
@@ -17,6 +17,7 @@ function toSelection(
   raw: RawInspectorData,
   index: number,
   stack?: StackFrame[],
+  symbolication: Symbolication | null = null,
 ): GrabSelection {
   const hierarchy = raw.hierarchy.map((item) => item.name || 'Unknown');
   const frames = stack ?? parseComponentStack(raw.componentStack);
@@ -30,25 +31,45 @@ function toSelection(
     index: safeIndex,
     stack: frames,
     source: findSourceFrame(frames, hierarchy, safeIndex),
+    symbolication,
     raw,
   };
 }
 
-/** Turn Metro bundle offsets into real source locations, best effort. */
-async function withRealSources(selection: GrabSelection): Promise<GrabSelection> {
-  let stack: StackFrame[];
+/**
+ * Turn Metro bundle offsets into real source locations, best effort.
+ *
+ * Deliberately *not* part of {@link inspectAtPoint}: a round-trip to Metro
+ * costs anything from a few milliseconds to most of a minute on a cold cache,
+ * and the panel must appear on the first frame either way. Callers show the
+ * selection, then apply this to it.
+ *
+ * The outcome — including the reason it failed — rides along on the returned
+ * selection, so the copied block can admit it has no locations instead of
+ * pasting a dozen bundle URLs that look like ones.
+ */
+export async function withRealSources(selection: GrabSelection): Promise<GrabSelection> {
+  let result: Awaited<ReturnType<typeof symbolicateStack>>;
   try {
-    stack = await symbolicateStack(selection.stack);
-  } catch {
+    result = await symbolicateStack(selection.stack);
+  } catch (error) {
     // Nice to have, never worth losing the selection over.
-    return selection;
+    return {
+      ...selection,
+      symbolication: {
+        server: null,
+        requested: 0,
+        mapped: 0,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
-  if (stack === selection.stack) return selection;
 
   return {
     ...selection,
-    stack,
-    source: findSourceFrame(stack, selection.hierarchy, selection.index),
+    stack: result.frames,
+    source: findSourceFrame(result.frames, selection.hierarchy, selection.index),
+    symbolication: result.info,
   };
 }
 
@@ -85,6 +106,9 @@ function queryPoint(
  * `inspectedView` must be the host instance wrapping your app: it scopes the
  * hit test, so the inspector's own overlays are never selected — and Fabric
  * dereferences it without a null check, so there is no meaningful default.
+ *
+ * The returned stack still holds Metro bundle offsets: pass the selection
+ * through {@link withRealSources} to turn them into files on disk.
  */
 export async function inspectAtPoint(
   x: number,
@@ -93,10 +117,7 @@ export async function inspectAtPoint(
 ): Promise<GrabSelection | null> {
   if (inspectedView == null) return null;
 
-  const selection = await queryPoint(x, y, inspectedView);
-  if (!selection) return null;
-
-  return withRealSources(selection);
+  return queryPoint(x, y, inspectedView);
 }
 
 /**
@@ -127,7 +148,7 @@ export function selectHierarchyIndex(
     }
 
     // The stack is already symbolicated: reuse it rather than pay for it twice.
-    const next = toSelection(selection.raw, index, selection.stack);
+    const next = toSelection(selection.raw, index, selection.stack, selection.symbolication);
     next.props = data.props ?? {};
 
     try {

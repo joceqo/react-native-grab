@@ -1,4 +1,4 @@
-import { appFrames, formatStackFrame } from './inspector/componentStack';
+import { appFrames, formatStackFrame, isBundleUrl } from './inspector/componentStack';
 import type { GrabSelection } from './inspector/types';
 
 export interface SerializeOptions {
@@ -80,7 +80,9 @@ export function serializeForLLMCore(
   const { name, source, frame, props, stack } = selection;
   const lines: string[] = [];
 
-  if (source?.fileName) {
+  // A bundle offset is not a location. Printing it as one is how this block
+  // ended up leading with `index.bundle//&platform=ios…:549003`.
+  if (source?.fileName && !isBundleUrl(source.fileName)) {
     lines.push(`// ${source.fileName}:${source.lineNumber ?? 0}`);
   }
   lines.push(`// ${formatFrame(frame)}`);
@@ -106,6 +108,20 @@ export function serializeForLLMCore(
 
     const omitted = stack.length - shown.length;
     if (omitted > 0) lines.push(`// … ${omitted} library frames omitted`);
+  }
+
+  // Say it out loud rather than hand over a stack of bare component names and
+  // let the reader assume the files were simply unknowable. Counted over what
+  // is printed, not over the whole stack: offsets nobody sees explain nothing.
+  const unresolved = shown.filter((f) => isBundleUrl(f.fileName)).length;
+  if (unresolved > 0) {
+    const sym = selection.symbolication;
+    const why =
+      sym?.error ??
+      (sym && sym.requested > 0
+        ? `Metro placed ${sym.mapped} of ${sym.requested} bundle offsets`
+        : 'symbolication did not run — Metro turns bundle offsets into files');
+    lines.push('', `// no file:line for ${unresolved} frame${unresolved > 1 ? 's' : ''}: ${why}`);
   }
 
   return lines.join('\n');

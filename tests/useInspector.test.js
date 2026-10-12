@@ -6,21 +6,31 @@ const Module = require('node:module');
 const { createScopeRegistry } = require('../lib/inspector/scopes');
 global.IS_REACT_ACT_ENVIRONMENT = true;
 const requests = [];
+const symbolications = [];
 const originalLoad = Module._load;
 Module._load = function(id, ...args) {
   if (id === '../inspector/inspect') return {
     isInspectorAvailable: () => true,
     inspectAtPoint: (x, y, view) => new Promise(resolve => requests.push({ x, y, view, resolve })),
     selectHierarchyIndex: () => new Promise(resolve => requests.push({ resolve })),
+    withRealSources: base => new Promise(resolve => symbolications.push({ base, resolve })),
   };
   return originalLoad.call(this, id, ...args);
 };
 const { useInspector } = require('../lib/hooks/useInspector');
 Module._load = originalLoad;
-const selection = name => ({ name, frame: { left: 0, top: 0, width: 100, height: 100 }, hierarchy: ['View', name], index: 1 });
+const selection = (name, symbolication = null) => ({
+  name,
+  frame: { left: 0, top: 0, width: 100, height: 100 },
+  hierarchy: ['View', name],
+  index: 1,
+  symbolication,
+});
+const located = { server: 'http://localhost:8081/', requested: 3, mapped: 3, error: null };
 
 async function mount(scopes) {
   requests.length = 0;
+  symbolications.length = 0;
   let inspector;
   const ref = { current: {} };
   function Probe() { inspector = useInspector(ref, scopes); return null; }
@@ -70,5 +80,78 @@ test('focus scopes drive the actual renderer query and navigation cancels its re
   await act(async () => scopes.update(screen, false));
   await act(async () => requests[0].resolve(selection('old screen')));
   assert.equal(app.inspector.selection, null);
+  await app.close();
+});
+
+test('the selection shows before Metro answers, then gains its sources', async () => {
+  const app = await mount();
+  await act(async () => app.inspector.select(10, 10));
+  await act(async () => requests[0].resolve(selection('Card')));
+
+  // On screen immediately, still holding bundle offsets.
+  assert.equal(app.inspector.selection.name, 'Card');
+  assert.equal(app.inspector.selection.symbolication, null);
+
+  await act(async () => symbolications[0].resolve(selection('Card', located)));
+  assert.deepEqual(app.inspector.selection.symbolication, located);
+  await app.close();
+});
+
+test('a late symbolication cannot resurrect a selection that moved on', async () => {
+  const app = await mount();
+  await act(async () => app.inspector.select(10, 10));
+  await act(async () => requests[0].resolve(selection('old')));
+  await act(async () => app.inspector.select(20, 20));
+  await act(async () => requests[1].resolve(selection('new')));
+  await act(async () => symbolications[0].resolve(selection('old', located)));
+  assert.equal(app.inspector.selection.name, 'new');
+  await app.close();
+});
+
+test('ensureSources waits for Metro and hands back the located selection', async () => {
+  const app = await mount();
+  await act(async () => app.inspector.select(10, 10));
+  await act(async () => requests[0].resolve(selection('Card')));
+  symbolications.length = 0;
+
+  let grabbed;
+  await act(async () => {
+    const pending = app.inspector.ensureSources().then(value => { grabbed = value; });
+    await Promise.resolve();
+    symbolications[0].resolve(selection('Card', located));
+    await pending;
+  });
+
+  assert.deepEqual(grabbed.symbolication, located);
+  assert.deepEqual(app.inspector.selection.symbolication, located);
+  await app.close();
+});
+
+test('ensureSources retries a failed round-trip but not a successful one', async () => {
+  const app = await mount();
+  await act(async () => app.inspector.select(10, 10));
+  await act(async () => requests[0].resolve(selection('Card')));
+  await act(async () => symbolications[0].resolve(
+    selection('Card', { server: 'http://localhost:8081/', requested: 3, mapped: 0, error: 'no answer from Metro' }),
+  ));
+
+  symbolications.length = 0;
+  await act(async () => {
+    app.inspector.ensureSources();
+    await Promise.resolve();
+  });
+  assert.equal(symbolications.length, 1, 'a failure is worth asking again');
+
+  await act(async () => symbolications[0].resolve(selection('Card', located)));
+  symbolications.length = 0;
+  await act(async () => { await app.inspector.ensureSources(); });
+  assert.equal(symbolications.length, 0, 'a located selection is never re-asked');
+  await app.close();
+});
+
+test('ensureSources is a no-op without a selection', async () => {
+  const app = await mount();
+  assert.equal(await app.inspector.ensureSources(), null);
+  assert.equal(symbolications.length, 0);
   await app.close();
 });

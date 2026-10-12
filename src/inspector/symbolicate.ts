@@ -1,4 +1,5 @@
-import type { StackFrame } from './types';
+import { isBundleUrl } from './componentStack';
+import type { StackFrame, Symbolication } from './types';
 
 /**
  * React reports component locations as offsets into the Metro bundle
@@ -7,18 +8,26 @@ import type { StackFrame } from './types';
  * through its `/symbolicate` endpoint — the same one LogBox uses.
  */
 
-const TIMEOUT_MS = 2000;
+/**
+ * Generous on purpose. The first call of a session pays for Metro's exploded
+ * source map — seconds on a large app, a minute on a cold cache — and the two
+ * seconds this used to allow turned a working setup into a block of bundle
+ * URLs roughly half the time. Nothing waits on this but the panel, and the
+ * panel says so while it waits.
+ */
+const TIMEOUT_MS = 15000;
 const FALLBACK_SERVER = 'http://localhost:8081/';
 
 interface MetroFrame {
   file: string;
   methodName: string;
-  lineNumber: number;
-  column: number;
+  lineNumber: number | null;
+  column: number | null;
 }
 
-function isBundleUrl(fileName: string | null): fileName is string {
-  return fileName != null && /^https?:\/\//.test(fileName);
+export interface SymbolicateResult {
+  frames: StackFrame[];
+  info: Symbolication;
 }
 
 /** Metro's origin, taken from any bundle URL React handed us. */
@@ -32,66 +41,140 @@ function devServerUrl(frames: StackFrame[]): string {
   return FALLBACK_SERVER;
 }
 
-async function post(url: string, frames: MetroFrame[]): Promise<MetroFrame[] | null> {
+function messageOf(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  return String(error);
+}
+
+/** Identifies one bundle offset, so the same one is never asked about twice. */
+function keyOf(frame: StackFrame): string {
+  return `${frame.fileName}|${frame.lineNumber}|${frame.columnNumber ?? 0}`;
+}
+
+/** Throws with a sentence worth showing, rather than returning null. */
+async function post(server: string, frames: MetroFrame[]): Promise<MetroFrame[]> {
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timer = setTimeout(() => controller?.abort(), TIMEOUT_MS);
 
+  let response: Response;
   try {
-    const response = await fetch(`${url}symbolicate`, {
+    response = await fetch(`${server}symbolicate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ stack: frames }),
       signal: controller?.signal,
     });
-    const json = (await response.json()) as { stack?: MetroFrame[] };
-    return Array.isArray(json?.stack) ? json.stack : null;
-  } catch {
-    return null;
+  } catch (error) {
+    throw new Error(
+      controller?.signal.aborted
+        ? `no answer from Metro at ${server} after ${Math.round(TIMEOUT_MS / 1000)}s`
+        : `cannot reach Metro at ${server} (${messageOf(error)})`,
+    );
   } finally {
     clearTimeout(timer);
   }
+
+  if (!response.ok) {
+    throw new Error(`Metro at ${server} answered HTTP ${response.status}`);
+  }
+
+  let json: { stack?: MetroFrame[] };
+  try {
+    json = (await response.json()) as { stack?: MetroFrame[] };
+  } catch (error) {
+    throw new Error(`Metro at ${server} answered something unreadable (${messageOf(error)})`);
+  }
+
+  if (!Array.isArray(json?.stack)) {
+    throw new Error(`Metro at ${server} answered without a stack`);
+  }
+
+  return json.stack;
 }
 
 /**
  * Replace bundle offsets with real `file:line:column` locations.
  *
  * Frames that are not bundle offsets are left untouched, and any failure —
- * no Metro, offline, malformed answer — returns the frames unchanged.
+ * no Metro, offline, malformed answer — returns the frames unchanged *and*
+ * says why in {@link SymbolicateResult.info}. A silent failure is what made
+ * this worth rewriting: the copied block looked complete and located nothing.
  */
-export async function symbolicateStack(frames: StackFrame[]): Promise<StackFrame[]> {
-  const indices: number[] = [];
-  const payload: MetroFrame[] = [];
+export async function symbolicateStack(frames: StackFrame[]): Promise<SymbolicateResult> {
+  // One entry per distinct offset: a real stack repeats the same `View` line
+  // dozens of times, and Metro should not be asked about it dozens of times.
+  const order: string[] = [];
+  const asked = new Map<string, MetroFrame>();
 
-  frames.forEach((frame, i) => {
-    if (!isBundleUrl(frame.fileName) || frame.lineNumber == null) return;
-    indices.push(i);
-    payload.push({
+  for (const frame of frames) {
+    if (!isBundleUrl(frame.fileName) || frame.lineNumber == null) continue;
+    const key = keyOf(frame);
+    if (asked.has(key)) continue;
+    asked.set(key, {
       file: frame.fileName,
       methodName: frame.name,
       lineNumber: frame.lineNumber,
       column: frame.columnNumber ?? 0,
     });
-  });
+    order.push(key);
+  }
 
-  if (payload.length === 0) return frames;
+  if (asked.size === 0) {
+    return { frames, info: { server: null, requested: 0, mapped: 0, error: null } };
+  }
 
-  const resolved = await post(devServerUrl(frames), payload);
-  if (!resolved || resolved.length !== payload.length) return frames;
-
-  const out = frames.slice();
-  resolved.forEach((frame, n) => {
-    if (!frame || typeof frame.file !== 'string') return;
-    // Metro answers with `null` file for frames it cannot map.
-    if (isBundleUrl(frame.file)) return;
-
-    const i = indices[n];
-    out[i] = {
-      ...out[i],
-      fileName: frame.file,
-      lineNumber: frame.lineNumber ?? out[i].lineNumber,
-      columnNumber: frame.column ?? out[i].columnNumber,
+  const server = devServerUrl(frames);
+  let resolved: MetroFrame[];
+  try {
+    resolved = await post(server, Array.from(asked.values()));
+  } catch (error) {
+    return {
+      frames,
+      info: { server, requested: asked.size, mapped: 0, error: messageOf(error) },
     };
+  }
+
+  if (resolved.length !== asked.size) {
+    return {
+      frames,
+      info: {
+        server,
+        requested: asked.size,
+        mapped: 0,
+        error: `Metro answered ${resolved.length} frames for ${asked.size}`,
+      },
+    };
+  }
+
+  const located = new Map<string, Pick<StackFrame, 'fileName' | 'lineNumber' | 'columnNumber'>>();
+  resolved.forEach((frame, n) => {
+    // Metro echoes the bundle URL back, with a null line, for what it cannot map.
+    if (!frame || typeof frame.file !== 'string') return;
+    if (isBundleUrl(frame.file) || frame.lineNumber == null) return;
+    located.set(order[n], {
+      fileName: frame.file,
+      lineNumber: frame.lineNumber,
+      columnNumber: frame.column ?? null,
+    });
   });
 
-  return out;
+  const out = frames.map((frame) => {
+    if (!isBundleUrl(frame.fileName) || frame.lineNumber == null) return frame;
+    const hit = located.get(keyOf(frame));
+    return hit ? { ...frame, ...hit } : frame;
+  });
+
+  return {
+    frames: out,
+    info: {
+      server,
+      requested: asked.size,
+      mapped: located.size,
+      error:
+        located.size === 0
+          ? `Metro at ${server} mapped none of the ${asked.size} bundle offsets — ` +
+            'the running bundle is probably not the one it is serving (reload the app)'
+          : null,
+    },
+  };
 }

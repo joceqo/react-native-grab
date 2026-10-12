@@ -1,6 +1,6 @@
 {
   "name": "@jocelinqueau/react-native-grab",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Tap any element in your React Native app and copy it for your AI coding agent",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

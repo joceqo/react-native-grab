@@ -31,6 +31,10 @@ Three things make that block worth pasting:
 - **Real file paths.** React reports component locations as offsets into the
   Metro bundle (`…hermes-stable:11134`). Grab resolves them through Metro's
   `/symbolicate` endpoint — the same one LogBox uses — so you get source files.
+  The round-trip starts when you tap and the panel waits for it when you press
+  the button, because the first one of a session can take Metro a while to
+  answer. When it cannot answer at all, the block says so in a last line
+  instead of handing you bundle URLs dressed as locations.
 - **Your code only.** A real component stack runs past 200 frames, nearly all of
   them inside `node_modules`. Grab keeps your own and says how many it dropped.
 - **Full paths, not shortened ones.** An agent can open them.
@@ -49,7 +53,8 @@ npm install @react-native-clipboard/clipboard  # bare React Native
 ```
 
 Both are optional peer dependencies, loaded through a guarded `require`. Without
-one, everything still works except the copy, which warns instead.
+one, everything still works except the copy, which fails visibly — the button
+reads `Failed` rather than claiming a clipboard it never wrote to.
 
 > On Expo, adding `expo-clipboard` means a native rebuild (`npx expo run:ios`).
 > React Native's core `Clipboard` export is not a substitute: its native module
@@ -127,6 +132,7 @@ For building your own UI on top:
 ```ts
 import {
   inspectAtPoint,       // (x, y, hostView) => Promise<GrabSelection | null>
+  withRealSources,      // GrabSelection => the same one, located through Metro
   selectHierarchyIndex, // walk up and down the hierarchy
   isInspectorAvailable, // false outside a dev build
   serializeForLLM,      // GrabSelection => the block above
@@ -137,6 +143,15 @@ import {
 
 `inspectAtPoint` needs the host instance wrapping your app — it scopes the hit
 test, and Fabric dereferences it without a null check.
+
+It returns straight away, with the stack still holding Metro bundle offsets:
+asking Metro to turn those into files takes anything from milliseconds to most
+of a minute on a cold source map, and no UI should wait on that before showing
+anything. Pass the selection through `withRealSources` before serializing it,
+or use `useInspector().ensureSources()`, which does it for the current
+selection and caches the result on it. The outcome lands on
+`selection.symbolication` — `{ server, requested, mapped, error }` — so you can
+tell "no locations" apart from "locations not asked for yet".
 
 ## Requirements
 

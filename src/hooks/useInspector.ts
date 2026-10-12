@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
-import { inspectAtPoint, isInspectorAvailable, selectHierarchyIndex } from '../inspector/inspect';
+import {
+  inspectAtPoint,
+  isInspectorAvailable,
+  selectHierarchyIndex,
+  withRealSources,
+} from '../inspector/inspect';
 import type { GrabSelection, InspectorFrame } from '../inspector/types';
 import type { ScopeRegistry } from '../inspector/scopes';
 
@@ -26,6 +31,13 @@ export interface Inspector {
   /** Preview what sits under a point without committing to it. */
   hover: (x: number, y: number) => void;
   selectIndex: (index: number) => void;
+  /**
+   * Resolve the current selection's source locations, if that has not already
+   * happened or has failed. Call it right before reading the selection out —
+   * copying it, posting it — so the result is never a block of bundle URLs
+   * just because Metro was slow when the element was tapped.
+   */
+  ensureSources: () => Promise<GrabSelection | null>;
   selectParent: () => void;
   selectChild: () => void;
   clearSelection: () => void;
@@ -78,6 +90,34 @@ export function useInspector(inspectedViewRef: MutableRefObject<unknown>, scopes
     else activate();
   }, [active, activate, deactivate]);
 
+  /** Symbolicate in the background and upgrade the selection in place. */
+  const refine = useCallback((base: GrabSelection, request: number) => {
+    void withRealSources(base).then(
+      (next) => {
+        if (request !== generation.current) return;
+        selectionRef.current = next;
+        setSelection(next);
+      },
+      () => {},
+    );
+  }, []);
+
+  const ensureSources = useCallback(async (): Promise<GrabSelection | null> => {
+    const current = selectionRef.current;
+    if (!current) return null;
+    // Retry a failed attempt: Metro may have come back, and an explicit grab
+    // is worth waiting for in a way a tap is not.
+    if (current.symbolication && current.symbolication.error == null) return current;
+
+    const request = generation.current;
+    const next = await withRealSources(current);
+    if (request === generation.current) {
+      selectionRef.current = next;
+      setSelection(next);
+    }
+    return next;
+  }, []);
+
   const select = useCallback(
     (x: number, y: number) => {
       clearSelection();
@@ -97,6 +137,8 @@ export function useInspector(inspectedViewRef: MutableRefObject<unknown>, scopes
             selectionRef.current = next;
             setSelection(next);
             setHoveredFrame(null);
+            // The panel is already on screen; the files catch up when Metro answers.
+            refine(next, request);
           } else {
             console.warn(`[react-native-grab] nothing found at (${x}, ${y}).`);
           }
@@ -104,7 +146,7 @@ export function useInspector(inspectedViewRef: MutableRefObject<unknown>, scopes
         (error) => console.warn('[react-native-grab] inspection failed:', error),
       );
     },
-    [inspectedViewRef, inspect, clearSelection],
+    [inspectedViewRef, inspect, clearSelection, refine],
   );
 
   const hover = useCallback(
@@ -154,6 +196,7 @@ export function useInspector(inspectedViewRef: MutableRefObject<unknown>, scopes
     select,
     hover,
     selectIndex,
+    ensureSources,
     selectParent,
     selectChild,
     clearSelection,
