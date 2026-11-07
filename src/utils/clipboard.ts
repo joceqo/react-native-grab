@@ -1,3 +1,10 @@
+/**
+ * Copy text, through whichever clipboard module the app installed.
+ *
+ * Throws when there is none. It used to warn and resolve, which made the
+ * panel flash "Copied!" over a clipboard that had not changed — the one
+ * outcome worse than a visible failure.
+ */
 export async function copyToClipboard(text: string): Promise<void> {
   // expo-clipboard (Expo managed workflow)
   try {
@@ -17,8 +24,9 @@ export async function copyToClipboard(text: string): Promise<void> {
     return;
   } catch {}
 
-  console.warn(
-    '[react-native-grab] No clipboard module found.\n' +
-      'Install expo-clipboard (Expo) or @react-native-clipboard/clipboard (bare RN).',
+  throw new Error(
+    '[react-native-grab] no clipboard module found. ' +
+      'Install expo-clipboard (Expo) or @react-native-clipboard/clipboard (bare RN), ' +
+      'or pass `onGrab` to send the selection somewhere else.',
   );
 }

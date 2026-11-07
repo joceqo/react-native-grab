@@ -1,10 +1,11 @@
-import type { MeasureOnSuccessCallback } from './getInspectorDataForViewAtPoint';
+import type { MeasureOnSuccessCallback, RawHierarchyItem } from './getInspectorDataForViewAtPoint';
 
 export interface ScopeView {
   measure: (callback: MeasureOnSuccessCallback) => void;
 }
 
 export interface InspectionScope {
+  id?: string;
   view: ScopeView | null;
   active: boolean;
   depth: number;
@@ -31,6 +32,18 @@ export function createScopeRegistry() {
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => { listeners.delete(listener); };
+    },
+    /** A root hit inside a retained, unfocused screen must not beat the focused scope. */
+    isInactiveHit(hierarchy: RawHierarchyItem[]) {
+      for (const item of hierarchy) {
+        try {
+          const testID = item.getInspectorData(() => null)?.props?.testID;
+          if (typeof testID !== 'string') continue;
+          const scope = [...scopes].find(candidate => candidate.id === testID);
+          if (scope && !isActive(scope)) return true;
+        } catch { /* An ancestor that cannot supply props is not a scope marker. */ }
+      }
+      return false;
     },
     async resolve(x: number, y: number) {
       const candidates = [...scopes].filter(isActive)

@@ -7,8 +7,18 @@ export { addDevMenuItem } from './devMenu';
 export { useInspector } from './hooks/useInspector';
 export type { Inspector } from './hooks/useInspector';
 
-export { inspectAtPoint, isInspectorAvailable, selectHierarchyIndex } from './inspector/inspect';
-export type { GrabSelection, InspectorFrame, StackFrame } from './inspector/types';
+export {
+  inspectAtPoint,
+  isInspectorAvailable,
+  selectHierarchyIndex,
+  withRealSources,
+} from './inspector/inspect';
+export type {
+  GrabSelection,
+  InspectorFrame,
+  StackFrame,
+  Symbolication,
+} from './inspector/types';
 
 export { serializeForLLM } from './serialize';
 export { ElementBox } from './rn/ElementBox';

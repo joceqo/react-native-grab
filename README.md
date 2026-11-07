@@ -31,6 +31,10 @@ Three things make that block worth pasting:
 - **Real file paths.** React reports component locations as offsets into the
   Metro bundle (`…hermes-stable:11134`). Grab resolves them through Metro's
   `/symbolicate` endpoint — the same one LogBox uses — so you get source files.
+  The round-trip starts when you tap and the panel waits for it when you press
+  the button, because the first one of a session can take Metro a while to
+  answer. When it cannot answer at all, the block says so in a last line
+  instead of handing you bundle URLs dressed as locations.
 - **Your code only.** A real component stack runs past 200 frames, nearly all of
   them inside `node_modules`. Grab keeps your own and says how many it dropped.
 - **Full paths, not shortened ones.** An agent can open them.
@@ -49,7 +53,8 @@ npm install @react-native-clipboard/clipboard  # bare React Native
 ```
 
 Both are optional peer dependencies, loaded through a guarded `require`. Without
-one, everything still works except the copy, which warns instead.
+one, everything still works except the copy, which fails visibly — the button
+reads `Failed` rather than claiming a clipboard it never wrote to.
 
 > On Expo, adding `expo-clipboard` means a native rebuild (`npx expo run:ios`).
 > React Native's core `Clipboard` export is not a substitute: its native module
@@ -73,6 +78,27 @@ export default function App() {
 
 Pass `__DEV__` so the whole thing disappears in production — `Grab` then renders
 its children and nothing else.
+
+### Copy to the development Mac
+
+The simulator has its own clipboard. To make **Copy for LLM** paste into an
+editor on the Mac as well, opt in to Grab's Metro bridge:
+
+```js
+// metro.config.js — after your other Metro wrappers
+const { withGrabMetro } = require('@jocelinqueau/react-native-grab/metro');
+module.exports = withGrabMetro(config);
+```
+
+```tsx
+<Grab enabled={__DEV__} hostClipboard>
+  <RootNavigator />
+</Grab>
+```
+
+The selection is copied to both clipboards. The bridge is only available while
+Metro runs on macOS and accepts requests from the local device or network.
+Without it, the button reports `Failed` instead of claiming the host copy worked.
 
 ### React Navigation / Expo Router: retained screens
 
@@ -99,10 +125,10 @@ export default function TabsLayout() {
 // Apply the same screenLayout to <Stack> / <Stack.Navigator> as well.
 ```
 
-Grab queries the deepest focused scope containing the touch, translating its
-coordinates for Fabric. Inactive parent scopes also exclude frozen descendants.
-Navigation invalidates pending selections. Outside screen bounds (for example
-the tab bar), inspection falls back to the app wrapper. No navigation dependency
+Grab first checks the complete app, which lets it inspect floating buttons and
+portals above a screen. If that hit belongs to a retained inactive screen, it
+queries the deepest focused scope instead. Inactive parent scopes exclude frozen
+descendants. Navigation invalidates pending selections. No navigation dependency
 is added to Grab, and disabled Grab renders scopes without native wrappers.
 
 Scopes describe navigation focus, not arbitrary visual occlusion. Register custom
@@ -127,6 +153,7 @@ For building your own UI on top:
 ```ts
 import {
   inspectAtPoint,       // (x, y, hostView) => Promise<GrabSelection | null>
+  withRealSources,      // GrabSelection => the same one, located through Metro
   selectHierarchyIndex, // walk up and down the hierarchy
   isInspectorAvailable, // false outside a dev build
   serializeForLLM,      // GrabSelection => the block above
@@ -137,6 +164,15 @@ import {
 
 `inspectAtPoint` needs the host instance wrapping your app — it scopes the hit
 test, and Fabric dereferences it without a null check.
+
+It returns straight away, with the stack still holding Metro bundle offsets:
+asking Metro to turn those into files takes anything from milliseconds to most
+of a minute on a cold source map, and no UI should wait on that before showing
+anything. Pass the selection through `withRealSources` before serializing it,
+or use `useInspector().ensureSources()`, which does it for the current
+selection and caches the result on it. The outcome lands on
+`selection.symbolication` — `{ server, requested, mapped, error }` — so you can
+tell "no locations" apart from "locations not asked for yet".
 
 ## Requirements
 

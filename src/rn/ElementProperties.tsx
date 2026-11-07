@@ -13,7 +13,7 @@
  */
 import React from 'react';
 import { StyleSheet, Text, TouchableHighlight, View } from 'react-native';
-import { shortPath } from '../inspector/componentStack';
+import { isBundleUrl, shortPath } from '../inspector/componentStack';
 import type { GrabSelection, InspectorFrame } from '../inspector/types';
 import { resolveBoxStyle, type BoxEdges } from './boxStyle';
 
@@ -125,9 +125,17 @@ export function ElementProperties({ selection, onSelectIndex }: ElementPropertie
         ))}
       </View>
 
-      {source?.fileName && (
+      {source?.fileName && !isBundleUrl(source.fileName) ? (
         <Text style={styles.source} numberOfLines={1}>
           {shortPath(source.fileName)}:{source.lineNumber ?? 0}
+        </Text>
+      ) : (
+        // The bundle offset React hands back is not worth showing. What the
+        // round-trip to Metro is doing — or why it gave up — is.
+        <Text style={styles.sourcePending} numberOfLines={1}>
+          {selection.symbolication
+            ? (selection.symbolication.error ?? 'source unresolved')
+            : 'resolving source…'}
         </Text>
       )}
 
@@ -173,6 +181,11 @@ const styles = StyleSheet.create({
   source: {
     fontSize: 11,
     color: '#93c5fd',
+    marginBottom: 6,
+  },
+  sourcePending: {
+    fontSize: 11,
+    color: '#9ca3af',
     marginBottom: 6,
   },
   row: {

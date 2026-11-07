@@ -32,6 +32,12 @@ interface InspectorPanelProps {
   onClose: () => void;
   /** Where the selection goes. Absent: the clipboard, exactly as before. */
   onGrab?: (text: string, selection: GrabSelection) => void | Promise<void>;
+  /**
+   * Resolve source locations before grabbing. The panel waits on it, because
+   * a block whose every frame reads `index.bundle:549003` is worth less than
+   * the second it takes to ask Metro again.
+   */
+  ensureSources?: () => Promise<GrabSelection | null>;
   grabLabel?: string;
   grabDoneLabel?: string;
 }
@@ -41,19 +47,28 @@ export function InspectorPanel({
   onSelectIndex,
   onClose,
   onGrab,
+  ensureSources,
   grabLabel,
   grabDoneLabel,
 }: InspectorPanelProps) {
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const handleCopy = useCallback(async () => {
-    if (!selection) return;
-    const text = serializeForLLM(selection);
+    if (!selection || busy) return;
+    setBusy(true);
     try {
+      // Locations first: tapping only starts the round-trip to Metro, and on a
+      // cold source map it is still in flight when the button is pressed.
+      const resolved = (ensureSources ? await ensureSources() : null) ?? selection;
+      // Serializing is inside the try on purpose. A prop that throws while
+      // being formatted used to escape as an unhandled rejection, and the
+      // button simply did nothing — the failure mode hardest to report.
+      const text = serializeForLLM(resolved);
       // The clipboard stays the default: an app that passes no `onGrab` behaves
       // exactly as it did, and nobody has to learn a prop to keep working.
-      await (onGrab ? onGrab(text, selection) : copyToClipboard(text));
+      await (onGrab ? onGrab(text, resolved) : copyToClipboard(text));
       setFailed(false);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -61,18 +76,22 @@ export function InspectorPanel({
       // A custom destination fails in ways the clipboard never could: no network,
       // a server that refuses, a session that expired. Flashing "Copied!" over a
       // selection that went nowhere would be worse than the failure itself.
-      console.warn('[react-native-grab] onGrab failed', error);
+      console.warn('[react-native-grab] grab failed', error);
       setCopied(false);
       setFailed(true);
       setTimeout(() => setFailed(false), 2000);
+    } finally {
+      setBusy(false);
     }
-  }, [selection, onGrab]);
+  }, [selection, busy, ensureSources, onGrab]);
 
   const actionTitle = failed
     ? 'Failed'
-    : copied
-      ? (grabDoneLabel ?? (onGrab ? 'Sent!' : 'Copied!'))
-      : (grabLabel ?? 'Copy for LLM');
+    : busy
+      ? 'Resolving…'
+      : copied
+        ? (grabDoneLabel ?? (onGrab ? 'Sent!' : 'Copied!'))
+        : (grabLabel ?? 'Copy for LLM');
 
   return (
     <SafeAreaView style={styles.container}>
@@ -90,7 +109,7 @@ export function InspectorPanel({
         <PanelButton
           title={actionTitle}
           highlighted={copied}
-          disabled={!selection}
+          disabled={!selection || busy}
           onPress={handleCopy}
         />
         <PanelButton title="Done" onPress={onClose} />

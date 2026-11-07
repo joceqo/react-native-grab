@@ -40,6 +40,15 @@ export function parseComponentStack(componentStack: string | null | undefined): 
   return frames;
 }
 
+/**
+ * A location React reported as an offset into the Metro bundle. It names no
+ * file anyone can open, so it is treated as "unresolved" everywhere until
+ * symbolication has turned it into a real path.
+ */
+export function isBundleUrl(fileName: string | null | undefined): fileName is string {
+  return fileName != null && /^https?:\/\//.test(fileName);
+}
+
 /** Keep the last two path segments — enough to recognise a file, short enough to read. */
 export function shortPath(fileName: string): string {
   return fileName.replace(/\\/g, '/').split('/').slice(-2).join('/');
@@ -50,7 +59,9 @@ export function shortPath(fileName: string): string {
  * headed for a coding agent — it can open a full path.
  */
 export function formatStackFrame(frame: StackFrame, options: { short?: boolean } = {}): string {
-  if (!frame.fileName) return `in ${frame.name}`;
+  // An unsymbolicated bundle offset is noise dressed as a location: drop it
+  // and keep the name, which is the only part that still means something.
+  if (!frame.fileName || isBundleUrl(frame.fileName)) return `in ${frame.name}`;
   const file = options.short ? shortPath(frame.fileName) : frame.fileName;
   const column = frame.columnNumber ?? 1;
   return `in ${frame.name} (at ${file}:${frame.lineNumber ?? 0}:${column})`;
@@ -62,9 +73,7 @@ export function formatStackFrame(frame: StackFrame, options: { short?: boolean }
  */
 export function isAppFrame(frame: StackFrame): boolean {
   return (
-    frame.fileName != null &&
-    !frame.fileName.includes('node_modules') &&
-    !/^https?:\/\//.test(frame.fileName)
+    frame.fileName != null && !frame.fileName.includes('node_modules') && !isBundleUrl(frame.fileName)
   );
 }
 
