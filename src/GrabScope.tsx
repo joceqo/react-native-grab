@@ -4,6 +4,7 @@ import type { InspectionScope, ScopeRegistry } from './inspector/scopes';
 
 export const GrabScopeRegistryContext = createContext<ScopeRegistry | null>(null);
 const ScopeContext = createContext<InspectionScope | null>(null);
+let nextScopeId = 1;
 
 export interface GrabScopeProps {
   /** Whether this screen is focused. Use your navigator's useIsFocused(). */
@@ -17,6 +18,7 @@ export function GrabScope({ active, children }: GrabScopeProps) {
   const parent = useContext(ScopeContext);
   const view = useRef<View>(null);
   const [scope] = useState<InspectionScope>(() => ({
+    id: `__react_native_grab_scope_${nextScopeId++}`,
     view: null, active, depth: (parent?.depth ?? 0) + 1, parent,
   }));
 
@@ -32,7 +34,7 @@ export function GrabScope({ active, children }: GrabScopeProps) {
   if (!registry) return <>{children}</>;
   return (
     <ScopeContext.Provider value={scope}>
-      <View ref={view} collapsable={false} style={{ flex: 1 }}>
+      <View ref={view} testID={scope.id} collapsable={false} style={{ flex: 1 }}>
         {children}
       </View>
     </ScopeContext.Provider>

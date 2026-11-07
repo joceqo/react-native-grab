@@ -19,12 +19,13 @@ Module._load = function(id, ...args) {
 };
 const { useInspector } = require('../lib/hooks/useInspector');
 Module._load = originalLoad;
-const selection = (name, symbolication = null) => ({
+const selection = (name, symbolication = null, raw = { hierarchy: [] }) => ({
   name,
   frame: { left: 0, top: 0, width: 100, height: 100 },
   hierarchy: ['View', name],
   index: 1,
   symbolication,
+  raw,
 });
 const located = { server: 'http://localhost:8081/', requested: 3, mapped: 3, error: null };
 
@@ -69,17 +70,34 @@ test('empty hit clears previous selection', async () => {
   await app.close();
 });
 
-test('focus scopes drive the actual renderer query and navigation cancels its result', async () => {
+test('inactive root hit falls back to the focused screen; navigation cancels its result', async () => {
   const scopes = createScopeRegistry();
-  const screen = { depth: 1, active: true, view: { measure: cb => cb(0, 0, 300, 600, 0, 100) } };
+  const hidden = { id: 'hidden', depth: 1, active: false, view: { measure: cb => cb(0, 0, 300, 600, 0, 100) } };
+  const screen = { id: 'focused', depth: 1, active: true, view: { measure: cb => cb(0, 0, 300, 600, 0, 100) } };
+  scopes.register(hidden);
   scopes.register(screen);
   const app = await mount(scopes);
   await act(async () => app.inspector.select(20, 150));
-  assert.equal(requests[0].view, screen.view);
-  assert.equal(requests[0].y, 50);
+  assert.notEqual(requests[0].view, screen.view);
+  await act(async () => requests[0].resolve(selection('old screen', null, {
+    hierarchy: [{ getInspectorData: () => ({ props: { testID: hidden.id } }) }],
+  })));
+  assert.equal(requests[1].view, screen.view);
+  assert.equal(requests[1].y, 50);
   await act(async () => scopes.update(screen, false));
-  await act(async () => requests[0].resolve(selection('old screen')));
+  await act(async () => requests[1].resolve(selection('focused screen')));
   assert.equal(app.inspector.selection, null);
+  await app.close();
+});
+
+test('floating content outside the focused scope keeps the root hit', async () => {
+  const scopes = createScopeRegistry();
+  scopes.register({ id: 'focused', depth: 1, active: true, view: { measure: cb => cb(0, 0, 300, 600, 0, 100) } });
+  const app = await mount(scopes);
+  await act(async () => app.inspector.select(20, 150));
+  await act(async () => requests[0].resolve(selection('floating button')));
+  assert.equal(app.inspector.selection.name, 'floating button');
+  assert.equal(requests.length, 1);
   await app.close();
 });
 

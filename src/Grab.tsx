@@ -9,6 +9,7 @@ import { useInspector, type Inspector } from './hooks/useInspector';
 import type { GrabSelection } from './inspector/types';
 import { InspectorOverlay } from './rn/InspectorOverlay';
 import { InspectorPanel } from './rn/InspectorPanel';
+import { copyToHostClipboard } from './utils/hostClipboard';
 
 export interface GrabProps {
   /** Enable the inspector. Pass `__DEV__` so it drops out of production. */
@@ -35,6 +36,8 @@ export interface GrabProps {
    * building its own payload does not have to serialize twice.
    */
   onGrab?: (text: string, selection: GrabSelection) => void | Promise<void>;
+  /** Copy to the device and macOS development host when `onGrab` is absent. Requires `withGrabMetro`. */
+  hostClipboard?: boolean;
   /** Label of the panel's action button. Set it when `onGrab` changes its meaning. */
   grabLabel?: string;
   /** Confirmation shown for two seconds once the action resolves. */
@@ -47,6 +50,7 @@ export function Grab({
   trigger = 'devMenu',
   devMenuLabel = 'Inspect element (custom)',
   onGrab,
+  hostClipboard = false,
   grabLabel,
   grabDoneLabel,
   children,
@@ -57,9 +61,9 @@ export function Grab({
     <GrabRoot
       trigger={trigger}
       devMenuLabel={devMenuLabel}
-      onGrab={onGrab}
+      onGrab={onGrab ?? (hostClipboard ? copyToHostClipboard : undefined)}
       grabLabel={grabLabel}
-      grabDoneLabel={grabDoneLabel}
+      grabDoneLabel={grabDoneLabel ?? (hostClipboard && !onGrab ? 'Copied!' : undefined)}
     >
       {children}
     </GrabRoot>

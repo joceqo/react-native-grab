@@ -66,3 +66,20 @@ test('focus change during native measurement invalidates the candidate', async (
   answer(0, 0, 100, 100, 0, 0);
   assert.equal(await pending, null);
 });
+
+test('root hit from a retained inactive screen falls back to the focused scope', () => {
+  const registry = createScopeRegistry();
+  const hidden = { ...scope(2, false), id: '__react_native_grab_scope_42' };
+  registry.register(hidden);
+  const hierarchy = [{ getInspectorData: () => ({ props: { testID: hidden.id } }) }];
+  assert.equal(registry.isInactiveHit(hierarchy), true);
+  registry.update(hidden, true);
+  assert.equal(registry.isInactiveHit(hierarchy), false);
+});
+
+test('floating content outside screen scopes keeps the root hit', () => {
+  const registry = createScopeRegistry();
+  registry.register({ ...scope(1), id: '__react_native_grab_scope_1' });
+  const floating = [{ getInspectorData: () => ({ props: { testID: 'floating-button' } }) }];
+  assert.equal(registry.isInactiveHit(floating), false);
+});

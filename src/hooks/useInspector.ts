@@ -65,10 +65,13 @@ export function useInspector(inspectedViewRef: MutableRefObject<unknown>, scopes
   useEffect(() => () => { generation.current += 1; }, []);
 
   const inspect = useCallback(async (x: number, y: number) => {
+    // Query the complete app first. A portal, floating button or tab bar can
+    // sit above a focused screen while living outside its GrabScope. Only a
+    // hit belonging to a retained inactive screen needs the focused fallback.
+    const rootHit = await inspectAtPoint(x, y, inspectedViewRef.current);
+    if (rootHit && !scopes?.isInactiveHit(rootHit.raw.hierarchy)) return rootHit;
     const scope = await scopes?.resolve(x, y);
-    return scope
-      ? inspectAtPoint(scope.x, scope.y, scope.view)
-      : inspectAtPoint(x, y, inspectedViewRef.current);
+    return scope ? inspectAtPoint(scope.x, scope.y, scope.view) : rootHit;
   }, [scopes, inspectedViewRef]);
 
   const activate = useCallback(() => {

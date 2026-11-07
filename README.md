@@ -79,6 +79,27 @@ export default function App() {
 Pass `__DEV__` so the whole thing disappears in production — `Grab` then renders
 its children and nothing else.
 
+### Copy to the development Mac
+
+The simulator has its own clipboard. To make **Copy for LLM** paste into an
+editor on the Mac as well, opt in to Grab's Metro bridge:
+
+```js
+// metro.config.js — after your other Metro wrappers
+const { withGrabMetro } = require('@jocelinqueau/react-native-grab/metro');
+module.exports = withGrabMetro(config);
+```
+
+```tsx
+<Grab enabled={__DEV__} hostClipboard>
+  <RootNavigator />
+</Grab>
+```
+
+The selection is copied to both clipboards. The bridge is only available while
+Metro runs on macOS and accepts requests from the local device or network.
+Without it, the button reports `Failed` instead of claiming the host copy worked.
+
 ### React Navigation / Expo Router: retained screens
 
 Fabric's inspector hit test uses the layout tree. Native navigation can detach or
@@ -104,10 +125,10 @@ export default function TabsLayout() {
 // Apply the same screenLayout to <Stack> / <Stack.Navigator> as well.
 ```
 
-Grab queries the deepest focused scope containing the touch, translating its
-coordinates for Fabric. Inactive parent scopes also exclude frozen descendants.
-Navigation invalidates pending selections. Outside screen bounds (for example
-the tab bar), inspection falls back to the app wrapper. No navigation dependency
+Grab first checks the complete app, which lets it inspect floating buttons and
+portals above a screen. If that hit belongs to a retained inactive screen, it
+queries the deepest focused scope instead. Inactive parent scopes exclude frozen
+descendants. Navigation invalidates pending selections. No navigation dependency
 is added to Grab, and disabled Grab renders scopes without native wrappers.
 
 Scopes describe navigation focus, not arbitrary visual occlusion. Register custom
